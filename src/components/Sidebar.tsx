@@ -8,8 +8,8 @@ export default function Sidebar() {
     { path: '/', label: 'Inicio', icon: '🏠' }, // Ahora Inicio es el raíz
     { path: '/dashboard', label: 'Dashboard', icon: '📊' },
     { path: '/inventario', label: 'Inventario', icon: '📦' },
-    { path: '/ordenes', label: 'Pedidos', icon: '🛒' },
-    { path: '/envios', label: 'Coordinación de Envíos', icon: '🚚' }, // Envíos ahora tiene su ruta
+    { path: '/ordenes', label: 'Ordenes', icon: '🛒' },
+    { path: '/envios', label: 'Envíos', icon: '🚚' }, // Envíos ahora tiene su ruta
   ];
 
   return (
