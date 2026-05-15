@@ -1,0 +1,1 @@
+export default function DashboardPage() { return <h2>Panel de Control General</h2> }
