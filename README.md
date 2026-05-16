@@ -102,7 +102,7 @@ docker compose ps
 
 ### Krakend (API Gateway v2.10.2)
 
-- Configuración declarativa en `backend/microservicios/apigateway/krakend.json`
+- Configuración declarativa en `backend/microservices/apigateway/krakend.json`
 - Routing: `/api/inventario/*`, `/api/pedidos/*`, `/api/envios/*` → BFF
 - JWT validator preparado para activarse cuando exista emisor
 
