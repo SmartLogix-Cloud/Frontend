@@ -1,111 +1,161 @@
-# SmartLogix Frontend
+# SmartLogix
 
-Aplicación web del sistema SmartLogix. SPA en React 19 servida por Nginx en producción y por Vite en desarrollo.
+Monorepo del sistema SmartLogix — plataforma logística para PYMEs eCommerce.
 
-**Stack**: React 19 · Vite 5 · Nginx (sirve el build en producción).
-
-## Responsabilidad
-
-Capa de **presentación**. Consume al BFF (`http://bff.smartlogix.localhost`) y al API Gateway (`http://api.smartlogix.localhost`).
-No habla directamente con los microservicios.
-
-## Cómo ejecutar
-
-### Vía Docker (recomendado para integración)
-
-Desde la raíz del monorepo:
-
-```bash
-docker compose up -d frontend
-```
-
-Levanta Nginx sirviendo el build de Vite en el puerto interno 80, expuesto vía Traefik en
-`http://app.smartlogix.localhost`.
-
-### Local con Vite (recomendado para desarrollo)
-
-```bash
-cd frontend
-npm install
-npm run dev          # dev server con HMR en http://localhost:5173
-```
-
-Vite usa el `vite.config.js` para proxear las llamadas a la API hacia el BFF. Si necesitas apuntar a otra URL, edita ese archivo.
-
-### Build de producción
-
-```bash
-npm run build        # genera dist/
-npm run preview      # sirve dist/ localmente para inspección
-```
-
-El `Dockerfile` hace `npm run build` y copia `dist/` al contenedor Nginx.
+Arquitectura de microservicios con Traefik como Ingress, Krakend como API Gateway, BFF en Node.js y microservicios Spring Boot con DB-per-Service.
 
 ## Estructura
 
 ```
-frontend/
-├── index.html              # entry HTML servido por Vite/Nginx
-├── package.json            # deps: react 19, react-dom 19, vite 5
-├── vite.config.js          # config Vite (puerto, proxy)
-├── nginx.conf              # config del Nginx que sirve dist/ en Docker
-├── Dockerfile              # multi-stage build (vite build → nginx alpine)
-└── src/
-    ├── main.jsx            # entry: monta <App> en #root
-    └── App.jsx             # componente raíz
+smartlogixs/
+├── docker-compose.yml             # Orquesta el stack completo
+├── .env.example                   # Variables (copiar a .env)
+├── infra/
+│   └── traefik/                   # Config Ingress Controller
+│       ├── traefik.yml
+│       └── dynamic/middlewares.yml
+├── docs/                          # Diagramas, informes
+├── frontend/                      # React 19 + Vite + Nginx
+└── backend/
+    ├── bff/                       # Node.js 20 (Express)
+    └── microservicios/
+        ├── apigateway/            # Krakend v2.10.2
+        ├── ms-envio/envio/        # Spring Boot 4 / Java 25
+        ├── ms-inventario/         # Spring Boot 4 / Java 25
+        └── ms-pedido/             # Spring Boot 4 / Java 25
 ```
 
-## Empaquetado como NPM (lib mode)
+## Topología (según diagrama de contenedores)
 
-Para empaquetar componentes reutilizables como librería NPM, agregar al `vite.config.js`:
+```
+Internet
+   │
+   ▼
+Traefik v3.5 (Ingress)         red: web (publica)
+   ├── app.smartlogix.localhost      → Frontend
+   ├── api.smartlogix.localhost      → API Gateway (Krakend)
+   ├── bff.smartlogix.localhost      → BFF (debug directo)
+   └── traefik.smartlogix.localhost  → Dashboard
 
-```js
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-
-export default defineConfig({
-  plugins: [react()],
-  build: {
-    lib: {
-      entry: 'src/index.js',
-      name: 'SmartLogixUI',
-      fileName: (format) => `smartlogix-ui.${format}.js`,
-      formats: ['es', 'cjs', 'umd']
-    },
-    rollupOptions: {
-      external: ['react', 'react-dom'],
-      output: { globals: { react: 'React', 'react-dom': 'ReactDOM' } }
-    }
-  }
-})
+API Gateway → BFF → ms-{inventario,pedido,envio}
+                          │
+                          ▼
+                    db-{...}                red: internal (privada)
 ```
 
-Y agregar al `package.json`:
+- **`web`**: red pública donde Traefik enruta tráfico externo
+- **`internal`** (`internal: true`): red aislada del exterior; las DBs y MS no son alcanzables desde Internet
 
-```json
-{
-  "main": "dist/smartlogix-ui.cjs.js",
-  "module": "dist/smartlogix-ui.es.js",
-  "files": ["dist"],
-  "peerDependencies": { "react": "^19.0.0", "react-dom": "^19.0.0" }
-}
-```
+## Levantar el stack
 
-Luego `npm pack` genera el `.tgz` listo para publicar a un registry.
+### 1. Pre-requisitos
 
-## Hosts a tener configurados (Windows)
+- Docker Desktop o Docker Engine + Compose v2
+- Editar el `hosts` de tu sistema operativo:
 
-`C:\Windows\System32\drivers\etc\hosts`:
+**Windows** (`C:\Windows\System32\drivers\etc\hosts`, abrir como administrador):
 ```
 127.0.0.1 app.smartlogix.localhost
-127.0.0.1 bff.smartlogix.localhost
 127.0.0.1 api.smartlogix.localhost
+127.0.0.1 bff.smartlogix.localhost
+127.0.0.1 traefik.smartlogix.localhost
 ```
 
-En Chrome/Firefox/Edge esos hosts resuelven automáticamente a 127.0.0.1 sin necesidad de editar `hosts`.
+> En Linux, `*.localhost` resuelve automáticamente, no hace falta tocar `/etc/hosts`.
 
-## Patrones aplicados
+### 2. Variables
 
+```bash
+cp .env.example .env
+# editar passwords si lo necesitas
+```
+
+### 3. Build + up
+
+```bash
+docker compose build
+docker compose up -d
+```
+
+Verificar:
+```bash
+docker compose ps
+```
+
+### 4. Smoke tests
+
+| URL | Qué deberías ver |
+|---|---|
+| http://app.smartlogix.localhost | Frontend con health del gateway |
+| http://api.smartlogix.localhost/health | `{"status":"ok","service":"bff"}` |
+| http://bff.smartlogix.localhost/health | `{"status":"ok","service":"bff"}` |
+| http://traefik.smartlogix.localhost | Dashboard Traefik |
+
+## Componentes
+
+### Traefik (Ingress Controller v3.5)
+
+- Provider Docker: descubre servicios por **labels**
+- Provider File: middlewares en `infra/traefik/dynamic/`
+- Entrypoints: `web` (80), `websecure` (443, preparado), `traefik` (8080, dashboard)
+- HTTPS: la sección Let's Encrypt está preparada y comentada en `traefik.yml`
+
+### Krakend (API Gateway v2.10.2)
+
+- Configuración declarativa en `backend/microservicios/apigateway/krakend.json`
+- Routing: `/api/inventario/*`, `/api/pedidos/*`, `/api/envios/*` → BFF
+- JWT validator preparado para activarse cuando exista emisor
+
+### BFF (Node.js 20 + Express)
+
+- Stub funcional con proxy a los 3 microservicios
+- Endpoints: `/health`, `/inventario/*`, `/pedidos/*`, `/envios/*`
+
+### Microservicios (Spring Boot 4 + Java 25)
+
+- **Importante**: el código actual usa Spring Boot **4.0.6** y Java **25** (no Spring Boot 3 / Java 21 como dice el diagrama). Los Dockerfiles están alineados al código real.
+- Cada MS lee:
+  - `SERVER_PORT` (default 8080)
+  - `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`
+- Las env vars de DB están seteadas en compose. **Para usarlas hay que agregar `spring-boot-starter-data-jpa` y `org.postgresql:postgresql` al `build.gradle`** y crear entidades/repositorios.
+
+### PostgreSQL 16 (DB-per-Service)
+
+- 3 instancias separadas (`db-inventario`, `db-pedido`, `db-envio`)
+- Aisladas en red `internal`, sin puertos expuestos al host
+- Volúmenes persistentes: `pg-{inventario,pedido,envio}-data`
+- Healthcheck con `pg_isready`
+
+## Comandos útiles
+
+```bash
+# Logs en vivo
+docker compose logs -f
+docker compose logs -f bff
+
+# Rebuild de un servicio específico
+docker compose up -d --build bff
+
+# Conectar a una DB
+docker compose exec db-inventario psql -U inventario -d inventario
+
+# Bajar todo (mantiene volúmenes)
+docker compose down
+
+# Bajar todo y borrar volúmenes (⚠ pierde data)
+docker compose down -v
+
+# Validar sintaxis del compose
+docker compose config
+```
+
+## Próximos pasos
+
+1. **Activar JPA**: agregar deps en cada `build.gradle` para que los MS hablen con su DB
+2. **Activar JWT**: configurar el JWT validator de Krakend con secret/issuer real
+3. **Activar HTTPS**: descomentar la sección `certificatesResolvers` en `traefik.yml`
+4. **Circuit Breaker**: agregar Resilience4j al ms-pedido para proteger las llamadas a ms-inventario
+5. **Healthchecks de MS**: agregar `spring-boot-starter-actuator` y descomentar HEALTHCHECK en los Dockerfiles
 - **SPA** servida estáticamente (Nginx) en producción, **HMR** en desarrollo
 - **BFF-first**: el frontend solo conoce el BFF, no los MS
 - Build **multi-stage** en Docker para imagen final mínima
