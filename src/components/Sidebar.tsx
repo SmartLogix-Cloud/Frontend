@@ -10,6 +10,8 @@ export default function Sidebar() {
     { path: '/inventario', label: 'Inventario', icon: '📦' },
     { path: '/ordenes', label: 'Ordenes', icon: '🛒' },
     { path: '/envios', label: 'Envíos', icon: '🚚' }, // Envíos ahora tiene su ruta
+    { path: '/registro', label: 'Registro', icon: '📄' }, 
+
   ];
 
   return (
