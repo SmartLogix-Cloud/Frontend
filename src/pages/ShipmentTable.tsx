@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Search, 
   Plus, 
@@ -12,9 +12,10 @@ import {
 import { Shipment } from '../types';
 
 interface ShipmentTableProps {
-  shipments: Shipment[];
-  onAddShipment: (shipment: Shipment) => void;
-  onUpdateShipmentStatus: (id: string, nextStatus: 'Entregado' | 'En Tránsito' | 'Pendiente' | 'Retrasado') => void;
+  // Optional: component will fetch from BFF if no shipments are provided
+  shipments?: Shipment[];
+  onAddShipment?: (shipment: Shipment) => void;
+  onUpdateShipmentStatus?: (id: string, nextStatus: 'Entregado' | 'En Tránsito' | 'Pendiente' | 'Retrasado') => void;
 }
 
 export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipmentStatus }: ShipmentTableProps) {
@@ -33,11 +34,20 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
   const [weight, setWeight] = useState(150);
   const [itemsCount, setItemsCount] = useState(5);
   const [errorMsg, setErrorMsg] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // Local shipments state when fetched from backend
+  const [remoteShipments, setRemoteShipments] = useState<Shipment[] | null>(null);
+
+  // API base (Vite env or default to localhost:3000 where BFF runs)
+  const API_BASE = (import.meta as any).env.VITE_API_BASE || 'http://localhost:3000';
 
   // Sorter
   const [sortBy, setSortBy] = useState<'estimatedDelivery' | 'weight' | 'trackingNumber'>('estimatedDelivery');
 
-  const filteredShipments = shipments.filter(s => {
+  const sourceShipments = remoteShipments ?? shipments ?? [];
+
+  const filteredShipments = sourceShipments.filter(s => {
     const matchesSearch = s.trackingNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           s.origin.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           s.destination.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -56,6 +66,40 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
     }
     return a.trackingNumber.localeCompare(b.trackingNumber);
   });
+
+  // Map backend DTO -> frontend Shipment (hoisted as function declaration so can be used above)
+  function mapDtoToShipment(d: any): Shipment {
+    const mapEstado = (e: string) => {
+      if (!e) return 'Pendiente';
+      switch (e) {
+        case 'ENTREGADO': return 'Entregado';
+        case 'EN_RUTA': return 'En Tránsito';
+        case 'ASIGNADO': return 'Pendiente';
+        case 'CREADO': return 'Pendiente';
+        case 'INCIDENCIA': return 'Retrasado';
+        default: return 'Pendiente';
+      }
+    };
+
+    return {
+      id: String(d.idEnvio ?? d.id ?? d.id_envio ?? Math.random().toString(36).substring(7)),
+      trackingNumber: d.trackingNumber ?? d.tracking_number ?? `ENV-${Math.floor(Math.random()*1e6)}`,
+      origin: d.comuna ? `${d.comuna}${d.region ? ', ' + d.region : ''}` : 'Planta Central',
+      destination: d.direccionDestino ?? d.direccion_destino ?? d.destination ?? '',
+      carrier: d.transportistaNombre ?? d.transportista?.nombre ?? 'Pendiente',
+      status: mapEstado(d.estado ?? d.estadoEnvio ?? d.estado_envio),
+      estimatedDelivery: d.fechaEstimada ? (typeof d.fechaEstimada === 'string' ? d.fechaEstimada : d.fechaEstimada.toString()) : (d.fecha_estimada ?? ''),
+      itemsCount: d.itemsCount ?? 1,
+      weight: d.weight ?? 0,
+      priority: d.priority ?? 'Media',
+      timeline: (d.seguimiento ?? d.tracking ?? []).map((s: any) => ({
+        status: `Estatus: ${mapEstado(s.estado ?? s.estado)}`,
+        location: s.ubicacion ?? s.ubicacion ?? '',
+        timestamp: s.createdAt ? new Date(s.createdAt).toISOString().substring(0,16).replace('T',' ') : (s.created_at ? new Date(s.created_at).toISOString().substring(0,16).replace('T',' ') : ''),
+        description: s.comentario ?? s.comentario ?? ''
+      }))
+    } as Shipment;
+  }
 
   const handleCreateShipment = (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,7 +136,35 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
       ]
     };
 
-    onAddShipment(newShip);
+    // Try to POST to BFF if available; otherwise call provided callback
+    (async () => {
+      try {
+        const payload = {
+          // ms-envio expects idPedido and direccionDestino; here we only provide direccionDestino
+          // If the BFF/ms requires idPedido this call may fail. We fall back to local callback.
+          direccionDestino: destination,
+          fechaEstimada: new Date().toISOString().substring(0,10),
+        } as any;
+
+        const res = await fetch(`${API_BASE}/envios`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (res.ok) {
+          const created = await res.json();
+          const mapped: Shipment = mapDtoToShipment(created);
+          setRemoteShipments(prev => prev ? [mapped, ...prev] : [mapped]);
+          onAddShipment?.(mapped);
+        } else {
+          // fallback to local only
+          onAddShipment?.(newShip);
+        }
+      } catch (err) {
+        onAddShipment?.(newShip);
+      }
+    })();
     setIsCreating(false);
     
     // Clear
@@ -106,11 +178,52 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
 
   const handleUpdateStatusLocal = (status: 'Entregado' | 'En Tránsito' | 'Pendiente' | 'Retrasado') => {
     if (!selectedShipment) return;
-    onUpdateShipmentStatus(selectedShipment.id, status);
-    
+    onUpdateShipmentStatus?.(selectedShipment.id, status);
+
+    // Map to backend enum and call BFF
+    const mapToEnum = (s: string) => {
+      switch (s) {
+        case 'Entregado': return 'ENTREGADO';
+        case 'En Tránsito': return 'EN_RUTA';
+        case 'Retrasado': return 'INCIDENCIA';
+        case 'Pendiente':
+        default:
+          return 'CREADO';
+      }
+    };
+
+    (async () => {
+      try {
+        const body = {
+          estado: mapToEnum(status),
+          ubicacion: status === 'Entregado' ? selectedShipment.destination : 'Centro de Distribución Intermedio',
+          comentario: `Actualizado manualmente a ${status}`,
+        };
+
+        const res = await fetch(`${API_BASE}/envios/${selectedShipment.id}/estado`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        if (res.ok) {
+          const updated = await res.json();
+          const mapped = mapDtoToShipment(updated);
+          setRemoteShipments(prev => prev ? prev.map(p => p.id === mapped.id ? mapped : p) : [mapped]);
+          setSelectedShipment(mapped);
+        } else {
+          // If backend fails, keep local optimistic update
+          applyLocalStatusUpdate(status);
+        }
+      } catch (err) {
+        applyLocalStatusUpdate(status);
+      }
+    })();
+  };
+
+  const applyLocalStatusUpdate = (status: 'Entregado' | 'En Tránsito' | 'Pendiente' | 'Retrasado') => {
     setSelectedShipment(prev => {
       if (!prev) return null;
-      
       const newTimelineNode = {
         status: `Estatus: ${status}`,
         location: status === 'Entregado' ? prev.destination : 'Centro de Distribución Intermedio',
@@ -118,13 +231,36 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
         description: `Se actualizó el estado a ${status} por control operativo.`
       };
 
-      return {
-        ...prev,
-        status,
-        timeline: [newTimelineNode, ...prev.timeline]
-      };
+      const updated = { ...prev, status, timeline: [newTimelineNode, ...prev.timeline] };
+      setRemoteShipments(prevList => prevList ? prevList.map(p => p.id === updated.id ? updated : p) : [updated]);
+      return updated;
     });
   };
+
+  
+
+  // Fetch shipments from BFF on mount
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`${API_BASE}/envios`);
+        if (!mounted) return;
+        if (res.ok) {
+          const data = await res.json();
+          const mapped = (data || []).map((d: any) => mapDtoToShipment(d));
+          setRemoteShipments(mapped);
+        }
+      } catch (err) {
+        // ignore — keep using props or empty
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+
+    return () => { mounted = false };
+  }, []);
 
   return (
     <div className="space-y-6">

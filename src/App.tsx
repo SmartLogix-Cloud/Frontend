@@ -142,11 +142,7 @@ export default function App() {
             )}
 
             {currentTab === 'shipments' && (
-              <ShipmentTable 
-                shipments={shipments}
-                onAddShipment={handleAddShipment}
-                onUpdateShipmentStatus={handleUpdateShipmentStatus}
-              />
+              <ShipmentTable />
             )}
 
             {currentTab === 'ai-hub' && (
