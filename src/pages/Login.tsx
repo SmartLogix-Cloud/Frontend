@@ -16,6 +16,7 @@ import {
   Building2
 } from 'lucide-react';
 import { UserProfile } from '../types';
+import { api, getUserProfileFromToken } from '../client/apiClient';
 
 interface LoginProps {
   onLoginSuccess: (user: UserProfile) => void;
@@ -39,21 +40,21 @@ export default function Login({ onLoginSuccess }: LoginProps) {
   const prefillCredentials = (roleType: 'admin' | 'guest') => {
     setErrorMsg('');
     if (roleType === 'admin') {
-      setEmail('nombre@empresa.com');
+      setEmail('admin@example.com');
       setPassword('admin12345');
-      setName('Eduardo Silva');
-      setCompany('LogixCorp Global');
+      setName('Admin User');
+      setCompany('SmartLogix Partner');
       setRole('Director de Operaciones');
     } else {
-      setEmail('invitado@smartlogix.com');
-      setPassword('invitado321');
-      setName('Laura Mendoza');
-      setCompany('SmartLogix Solutions');
+      setEmail('user@example.com');
+      setPassword('admin12345');
+      setName('Default User');
+      setCompany('SmartLogix Partner');
       setRole('Analista de Distribución');
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
@@ -66,31 +67,33 @@ export default function Login({ onLoginSuccess }: LoginProps) {
       setErrorMsg('La contraseña es obligatoria.');
       return;
     }
-    if (isSignUp && (!name || !company)) {
-      setErrorMsg('Por favor completa todos los campos de registro.');
+    if (isSignUp && (!name)) {
+      setErrorMsg('Por favor completa el nombre completo de registro.');
       return;
     }
 
     setIsLoading(true);
 
-    // Simulate authenticating
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
       if (isSignUp) {
+        await api.register(name, email, password);
         setSuccessMsg('¡Registro exitoso! Ya puedes iniciar sesión.');
         setIsSignUp(false);
         setPassword('');
       } else {
-        // Log in
-        const authenticatedUser: UserProfile = {
-          name: name || (email === 'invitado@smartlogix.com' ? 'Laura Mendoza' : 'Eduardo Silva'),
-          email: email,
-          company: company || (email === 'invitado@smartlogix.com' ? 'SmartLogix' : 'LogixCorp Global'),
-          role: email === 'invitado@smartlogix.com' ? 'Analista de Distribución' : role
-        };
-        onLoginSuccess(authenticatedUser);
+        const response = await api.login(email, password);
+        const userProfile = getUserProfileFromToken(response.accessToken);
+        if (userProfile) {
+          onLoginSuccess(userProfile);
+        } else {
+          setErrorMsg('No se pudo decodificar el token de usuario.');
+        }
       }
-    }, 1500);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Error al conectar con el servidor.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

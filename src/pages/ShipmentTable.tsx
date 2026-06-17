@@ -10,6 +10,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { Shipment } from '../types';
+import { api } from '../client/apiClient';
 
 interface ShipmentTableProps {
   // Optional: component will fetch from BFF if no shipments are provided
@@ -140,27 +141,16 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
     (async () => {
       try {
         const payload = {
-          // ms-envio expects idPedido and direccionDestino; here we only provide direccionDestino
-          // If the BFF/ms requires idPedido this call may fail. We fall back to local callback.
+          idPedido: 1, // default logical ID
+          idTransportista: 1, // default carrier ID
           direccionDestino: destination,
           fechaEstimada: new Date().toISOString().substring(0,10),
-        } as any;
+        };
 
-        const res = await fetch(`${API_BASE}/envios`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-
-        if (res.ok) {
-          const created = await res.json();
-          const mapped: Shipment = mapDtoToShipment(created);
-          setRemoteShipments(prev => prev ? [mapped, ...prev] : [mapped]);
-          onAddShipment?.(mapped);
-        } else {
-          // fallback to local only
-          onAddShipment?.(newShip);
-        }
+        const created = await api.createShipment(payload);
+        const mapped: Shipment = mapDtoToShipment(created);
+        setRemoteShipments(prev => prev ? [mapped, ...prev] : [mapped]);
+        onAddShipment?.(mapped);
       } catch (err) {
         onAddShipment?.(newShip);
       }
@@ -200,21 +190,10 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
           comentario: `Actualizado manualmente a ${status}`,
         };
 
-        const res = await fetch(`${API_BASE}/envios/${selectedShipment.id}/estado`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-
-        if (res.ok) {
-          const updated = await res.json();
-          const mapped = mapDtoToShipment(updated);
-          setRemoteShipments(prev => prev ? prev.map(p => p.id === mapped.id ? mapped : p) : [mapped]);
-          setSelectedShipment(mapped);
-        } else {
-          // If backend fails, keep local optimistic update
-          applyLocalStatusUpdate(status);
-        }
+        const updated = await api.updateShipmentStatus(selectedShipment.id, body);
+        const mapped = mapDtoToShipment(updated);
+        setRemoteShipments(prev => prev ? prev.map(p => p.id === mapped.id ? mapped : p) : [mapped]);
+        setSelectedShipment(mapped);
       } catch (err) {
         applyLocalStatusUpdate(status);
       }
@@ -245,13 +224,10 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
     (async () => {
       setLoading(true);
       try {
-        const res = await fetch(`${API_BASE}/envios`);
+        const data = await api.getShipments();
         if (!mounted) return;
-        if (res.ok) {
-          const data = await res.json();
-          const mapped = (data || []).map((d: any) => mapDtoToShipment(d));
-          setRemoteShipments(mapped);
-        }
+        const mapped = (data || []).map((d: any) => mapDtoToShipment(d));
+        setRemoteShipments(mapped);
       } catch (err) {
         // ignore — keep using props or empty
       } finally {
