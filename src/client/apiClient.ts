@@ -1,6 +1,6 @@
 import { Product, Shipment, UserProfile } from '../types';
 
-const API_BASE = '/api';
+const API_BASE = import.meta.env.VITE_API_BASE ?? '/api';
 
 export function getStoredToken(): string | null {
   return localStorage.getItem('token');
