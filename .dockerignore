@@ -1,6 +1,12 @@
 node_modules
 dist
-.env
-.env.local
 .git
+.gitignore
+.env
+.env.*
 *.log
+.vscode
+.idea
+README.md
+metadata.json
+k8s
