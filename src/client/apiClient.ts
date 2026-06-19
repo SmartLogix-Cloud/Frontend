@@ -93,26 +93,26 @@ export const api = {
   },
 
   async getProducts(): Promise<Product[]> {
-    return request('/inventario/productos-con-stock');
+    return request('/inventory/products-with-stock');
   },
 
   async createProduct(product: Partial<Product>): Promise<Product> {
-    return request('/inventario/productos', {
+    return request('/inventory/products', {
       method: 'POST',
       body: JSON.stringify(product),
     });
   },
 
   async deleteProduct(id: string): Promise<void> {
-    await request(`/inventario/productos/${id}`, {
+    await request(`/inventory/products/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ activo: false }),
     });
   },
 
-  // Map to ms-inventory/stock/entrada or salida
+  // Map to ms-inventory/stock/in or out
   async adjustProductStock(idProducto: number | string, idBodega: number | string, cantidad: number, tipo: 'ENTRADA' | 'SALIDA'): Promise<any> {
-    const path = tipo === 'ENTRADA' ? '/inventario/stock/entrada' : '/inventario/stock/salida';
+    const path = tipo === 'ENTRADA' ? '/inventory/stock/in' : '/inventory/stock/out';
     return request(path, {
       method: 'POST',
       body: JSON.stringify({
@@ -125,18 +125,18 @@ export const api = {
   },
 
   async getShipments(): Promise<any[]> {
-    return request('/envios');
+    return request('/shipments');
   },
 
   async createShipment(shipment: { idPedido: number; idTransportista: number; trackingNumber?: string; direccionDestino: string; fechaEstimada?: string }): Promise<any> {
-    return request('/envios', {
+    return request('/shipments', {
       method: 'POST',
       body: JSON.stringify(shipment),
     });
   },
 
   async updateShipmentStatus(id: string, payload: { estado: string; ubicacion: string; comentario: string }): Promise<any> {
-    return request(`/envios/${id}/estado`, {
+    return request(`/shipments/${id}/status`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
     });
