@@ -83,21 +83,21 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
     };
 
     return {
-      id: String(d.idEnvio ?? d.id ?? d.id_envio ?? Math.random().toString(36).substring(7)),
-      trackingNumber: d.trackingNumber ?? d.tracking_number ?? `ENV-${Math.floor(Math.random()*1e6)}`,
-      origin: d.comuna ? `${d.comuna}${d.region ? ', ' + d.region : ''}` : 'Planta Central',
-      destination: d.direccionDestino ?? d.direccion_destino ?? d.destination ?? '',
-      carrier: d.transportistaNombre ?? d.transportista?.nombre ?? 'Pendiente',
-      status: mapEstado(d.estado ?? d.estadoEnvio ?? d.estado_envio),
-      estimatedDelivery: d.fechaEstimada ? (typeof d.fechaEstimada === 'string' ? d.fechaEstimada : d.fechaEstimada.toString()) : (d.fecha_estimada ?? ''),
+      id: String(d.shipmentId ?? d.id ?? Math.random().toString(36).substring(7)),
+      trackingNumber: d.trackingNumber ?? `ENV-${Math.floor(Math.random()*1e6)}`,
+      origin: d.district ? `${d.district}${d.region ? ', ' + d.region : ''}` : 'Planta Central',
+      destination: d.destinationAddress ?? d.destination ?? '',
+      carrier: d.carrierName ?? 'Pendiente',
+      status: mapEstado(d.status),
+      estimatedDelivery: d.estimatedDate ? String(d.estimatedDate) : '',
       itemsCount: d.itemsCount ?? 1,
       weight: d.weight ?? 0,
       priority: d.priority ?? 'Media',
-      timeline: (d.seguimiento ?? d.tracking ?? []).map((s: any) => ({
-        status: `Estatus: ${mapEstado(s.estado ?? s.estado)}`,
-        location: s.ubicacion ?? s.ubicacion ?? '',
-        timestamp: s.createdAt ? new Date(s.createdAt).toISOString().substring(0,16).replace('T',' ') : (s.created_at ? new Date(s.created_at).toISOString().substring(0,16).replace('T',' ') : ''),
-        description: s.comentario ?? s.comentario ?? ''
+      timeline: (d.tracking ?? []).map((s: any) => ({
+        status: `Estatus: ${mapEstado(s.status)}`,
+        location: s.location ?? '',
+        timestamp: s.createdAt ? new Date(s.createdAt).toISOString().substring(0,16).replace('T',' ') : '',
+        description: s.comment ?? ''
       }))
     } as Shipment;
   }
@@ -141,10 +141,10 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
     (async () => {
       try {
         const payload = {
-          idPedido: 1, // default logical ID
-          idTransportista: 1, // default carrier ID
-          direccionDestino: destination,
-          fechaEstimada: new Date().toISOString().substring(0,10),
+          orderId: 1, // default logical ID
+          carrierId: 1, // default carrier ID
+          destinationAddress: destination,
+          estimatedDate: new Date().toISOString().substring(0,10),
         };
 
         const created = await api.createShipment(payload);
@@ -185,9 +185,9 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
     (async () => {
       try {
         const body = {
-          estado: mapToEnum(status),
-          ubicacion: status === 'Entregado' ? selectedShipment.destination : 'Centro de Distribución Intermedio',
-          comentario: `Actualizado manualmente a ${status}`,
+          status: mapToEnum(status),
+          location: status === 'Entregado' ? selectedShipment.destination : 'Centro de Distribución Intermedio',
+          comment: `Actualizado manualmente a ${status}`,
         };
 
         const updated = await api.updateShipmentStatus(selectedShipment.id, body);

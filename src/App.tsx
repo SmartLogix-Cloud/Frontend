@@ -32,21 +32,21 @@ export default function App() {
 
   const mapDtoToShipment = (d: any): Shipment => {
     return {
-      id: String(d.idEnvio ?? d.id ?? d.id_envio ?? Math.random().toString(36).substring(7)),
-      trackingNumber: d.trackingNumber ?? d.tracking_number ?? `ENV-${Math.floor(Math.random()*1e6)}`,
-      origin: d.comuna ? `${d.comuna}${d.region ? ', ' + d.region : ''}` : 'Planta Central',
-      destination: d.direccionDestino ?? d.direccion_destino ?? d.destination ?? '',
-      carrier: d.transportistaNombre ?? d.transportista?.nombre ?? 'Pendiente',
-      status: mapEstado(d.estado ?? d.estadoEnvio),
-      estimatedDelivery: d.fechaEstimada ? (typeof d.fechaEstimada === 'string' ? d.fechaEstimada : d.fechaEstimada.toString()) : (d.fecha_estimada ?? ''),
+      id: String(d.shipmentId ?? d.id ?? Math.random().toString(36).substring(7)),
+      trackingNumber: d.trackingNumber ?? `ENV-${Math.floor(Math.random()*1e6)}`,
+      origin: d.district ? `${d.district}${d.region ? ', ' + d.region : ''}` : 'Planta Central',
+      destination: d.destinationAddress ?? d.destination ?? '',
+      carrier: d.carrierName ?? 'Pendiente',
+      status: mapEstado(d.status),
+      estimatedDelivery: d.estimatedDate ? String(d.estimatedDate) : '',
       itemsCount: d.itemsCount ?? 1,
       weight: d.weight ?? 0,
       priority: d.priority ?? 'Media',
-      timeline: (d.seguimiento ?? d.tracking ?? []).map((s: any) => ({
-        status: `Estatus: ${mapEstado(s.estado)}`,
-        location: s.ubicacion ?? '',
-        timestamp: s.createdAt ? new Date(s.createdAt).toISOString().substring(0,16).replace('T',' ') : (s.created_at ? new Date(s.created_at).toISOString().substring(0,16).replace('T',' ') : ''),
-        description: s.comentario ?? ''
+      timeline: (d.tracking ?? []).map((s: any) => ({
+        status: `Estatus: ${mapEstado(s.status)}`,
+        location: s.location ?? '',
+        timestamp: s.createdAt ? new Date(s.createdAt).toISOString().substring(0,16).replace('T',' ') : '',
+        description: s.comment ?? ''
       }))
     };
   };

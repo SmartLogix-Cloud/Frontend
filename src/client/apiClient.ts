@@ -106,20 +106,20 @@ export const api = {
   async deleteProduct(id: string): Promise<void> {
     await request(`/inventory/products/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ activo: false }),
+      body: JSON.stringify({ active: false }),
     });
   },
 
   // Map to ms-inventory/stock/in or out
-  async adjustProductStock(idProducto: number | string, idBodega: number | string, cantidad: number, tipo: 'ENTRADA' | 'SALIDA'): Promise<any> {
-    const path = tipo === 'ENTRADA' ? '/inventory/stock/in' : '/inventory/stock/out';
+  async adjustProductStock(productId: number | string, warehouseId: number | string, quantity: number, type: 'ENTRADA' | 'SALIDA'): Promise<any> {
+    const path = type === 'ENTRADA' ? '/inventory/stock/in' : '/inventory/stock/out';
     return request(path, {
       method: 'POST',
       body: JSON.stringify({
-        idProducto: Number(idProducto),
-        idBodega: Number(idBodega),
-        cantidad: Math.abs(cantidad),
-        referenciaPedido: 'Ajuste Manual UI'
+        productId: Number(productId),
+        warehouseId: Number(warehouseId),
+        quantity: Math.abs(quantity),
+        orderReference: 'Ajuste Manual UI'
       }),
     });
   },
@@ -128,14 +128,14 @@ export const api = {
     return request('/shipments');
   },
 
-  async createShipment(shipment: { idPedido: number; idTransportista: number; trackingNumber?: string; direccionDestino: string; fechaEstimada?: string }): Promise<any> {
+  async createShipment(shipment: { orderId: number; carrierId?: number; trackingNumber?: string; destinationAddress: string; estimatedDate?: string }): Promise<any> {
     return request('/shipments', {
       method: 'POST',
       body: JSON.stringify(shipment),
     });
   },
 
-  async updateShipmentStatus(id: string, payload: { estado: string; ubicacion: string; comentario: string }): Promise<any> {
+  async updateShipmentStatus(id: string, payload: { status: string; location: string; comment: string }): Promise<any> {
     return request(`/shipments/${id}/status`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
