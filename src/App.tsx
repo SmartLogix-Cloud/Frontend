@@ -1,5 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { UserProfile, Product, Shipment, LogisticsLog } from './types';
+import {
+  UserProfile,
+  Product,
+  Shipment,
+  LogisticsLog,
+  ShipmentDto,
+  ShipmentTrackingDto,
+  ShipmentStatus,
+  LogType,
+} from './types';
 import Login from './pages/Login';
 import Sidebar from './components/Sidebar';
 import DashboardHome from './pages/DashboardHome';
@@ -7,7 +16,13 @@ import WarehouseGrid from './pages/WarehouseGrid';
 import ShipmentTable from './pages/ShipmentTable';
 import AIHub from './pages/AIHub';
 import { INITIAL_LOGS } from './data/mockData';
-import { api, getStoredToken, getUserProfileFromToken, removeStoredToken } from './client/apiClient';
+import {
+  api,
+  getStoredToken,
+  getUserProfileFromToken,
+  removeStoredToken,
+  getErrorMessage,
+} from './client/apiClient';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
@@ -18,7 +33,7 @@ export default function App() {
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [logs, setLogs] = useState<LogisticsLog[]>(INITIAL_LOGS);
 
-  const mapEstado = (e: string) => {
+  const mapEstado = (e: string): ShipmentStatus => {
     if (!e) return 'Pendiente';
     switch (e) {
       case 'ENTREGADO': return 'Entregado';
@@ -30,7 +45,7 @@ export default function App() {
     }
   };
 
-  const mapDtoToShipment = (d: any): Shipment => {
+  const mapDtoToShipment = (d: ShipmentDto): Shipment => {
     return {
       id: String(d.shipmentId ?? d.id ?? Math.random().toString(36).substring(7)),
       trackingNumber: d.trackingNumber ?? `ENV-${Math.floor(Math.random()*1e6)}`,
@@ -42,8 +57,8 @@ export default function App() {
       itemsCount: d.itemsCount ?? 1,
       weight: d.weight ?? 0,
       priority: d.priority ?? 'Media',
-      timeline: (d.tracking ?? []).map((s: any) => ({
-        status: `Estatus: ${mapEstado(s.status)}`,
+      timeline: (d.tracking ?? []).map((s: ShipmentTrackingDto) => ({
+        status: `Estatus: ${mapEstado(s.status ?? '')}`,
         location: s.location ?? '',
         timestamp: s.createdAt ? new Date(s.createdAt).toISOString().substring(0,16).replace('T',' ') : '',
         description: s.comment ?? ''
@@ -62,7 +77,7 @@ export default function App() {
 
     try {
       const rawShipments = await api.getShipments();
-      const mapped = (rawShipments || []).map((d: any) => mapDtoToShipment(d));
+      const mapped = (rawShipments || []).map((d) => mapDtoToShipment(d));
       setShipments(mapped);
     } catch (err) {
       console.error("Error loading shipments:", err);
@@ -99,7 +114,7 @@ export default function App() {
     setCurrentTab('overview');
   };
 
-  const appendLog = (type: 'shipment_update' | 'inventory_alert' | 'system_info' | 'security_event', message: string, operator: string) => {
+  const appendLog = (type: LogType, message: string, operator: string) => {
     const newLog: LogisticsLog = {
       id: Math.random().toString(36).substring(7),
       timestamp: new Date().toISOString().substring(0, 16).replace('T', ' '),
@@ -124,8 +139,8 @@ export default function App() {
       const created = await api.createProduct(newProd);
       setProducts(prev => [created, ...prev]);
       appendLog('system_info', `Se ingresó y ubicó el lote ${created.sku} (${created.name}) en ${created.location}.`, currentUser?.name || 'Operador');
-    } catch (err: any) {
-      alert("Error al ingresar producto: " + err.message);
+    } catch (err) {
+      alert("Error al ingresar producto: " + getErrorMessage(err));
     }
   };
 
@@ -156,8 +171,8 @@ export default function App() {
         }
         return item;
       }));
-    } catch (err: any) {
-      alert("Error al actualizar stock: " + err.message);
+    } catch (err) {
+      alert("Error al actualizar stock: " + getErrorMessage(err));
     }
   };
 
@@ -169,8 +184,8 @@ export default function App() {
       await api.deleteProduct(id);
       setProducts(prev => prev.filter(p => p.id !== id));
       appendLog('system_info', `Lote removido: Se desactivó el lote ${targetProd.sku} (${targetProd.name}) de los racks RFID.`, currentUser?.name || 'Operador');
-    } catch (err: any) {
-      alert("Error al desactivar producto: " + err.message);
+    } catch (err) {
+      alert("Error al desactivar producto: " + getErrorMessage(err));
     }
   };
 
@@ -180,7 +195,7 @@ export default function App() {
     appendLog('shipment_update', `Nueva orden de despacho generada: ${newShip.trackingNumber} (${newShip.origin} ➔ ${newShip.destination}) via ${newShip.carrier}.`, currentUser?.name || 'Operador');
   };
 
-  const handleUpdateShipmentStatus = (id: string, nextStatus: 'Entregado' | 'En Tránsito' | 'Pendiente' | 'Retrasado') => {
+  const handleUpdateShipmentStatus = (id: string, nextStatus: ShipmentStatus) => {
     setShipments(prev => prev.map(s => {
       if (s.id === id) {
         appendLog('shipment_update', `Carga ${s.trackingNumber} cambió estatus de "${s.status}" a "${nextStatus}". Operador satélite asignado.`, currentUser?.name || 'Operador');

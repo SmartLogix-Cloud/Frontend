@@ -9,14 +9,24 @@ import {
   Gauge,
   ArrowRight
 } from 'lucide-react';
-import { Shipment } from '../types';
+import {
+  Shipment,
+  ShipmentDto,
+  ShipmentTrackingDto,
+  ShipmentStatus,
+  ShipmentPriority,
+  CreateShipmentPayload,
+  UpdateShipmentStatusPayload,
+} from '../types';
 import { api } from '../client/apiClient';
+
+type SortKey = 'estimatedDelivery' | 'weight' | 'trackingNumber';
 
 interface ShipmentTableProps {
   // Optional: component will fetch from BFF if no shipments are provided
   shipments?: Shipment[];
   onAddShipment?: (shipment: Shipment) => void;
-  onUpdateShipmentStatus?: (id: string, nextStatus: 'Entregado' | 'En Tránsito' | 'Pendiente' | 'Retrasado') => void;
+  onUpdateShipmentStatus?: (id: string, nextStatus: ShipmentStatus) => void;
 }
 
 export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipmentStatus }: ShipmentTableProps) {
@@ -31,7 +41,7 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
   const [carrier, setCarrier] = useState('DHS Express');
-  const [priority, setPriority] = useState<'Alta' | 'Media' | 'Baja'>('Media');
+  const [priority, setPriority] = useState<ShipmentPriority>('Media');
   const [weight, setWeight] = useState(150);
   const [itemsCount, setItemsCount] = useState(5);
   const [errorMsg, setErrorMsg] = useState('');
@@ -40,11 +50,8 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
   // Local shipments state when fetched from backend
   const [remoteShipments, setRemoteShipments] = useState<Shipment[] | null>(null);
 
-  // API base (Vite env or default to localhost:3000 where BFF runs)
-  const API_BASE = (import.meta as any).env.VITE_API_BASE || 'http://localhost:3000';
-
   // Sorter
-  const [sortBy, setSortBy] = useState<'estimatedDelivery' | 'weight' | 'trackingNumber'>('estimatedDelivery');
+  const [sortBy, setSortBy] = useState<SortKey>('estimatedDelivery');
 
   const sourceShipments = remoteShipments ?? shipments ?? [];
 
@@ -69,8 +76,8 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
   });
 
   // Map backend DTO -> frontend Shipment (hoisted as function declaration so can be used above)
-  function mapDtoToShipment(d: any): Shipment {
-    const mapEstado = (e: string) => {
+  function mapDtoToShipment(d: ShipmentDto): Shipment {
+    const mapEstado = (e: string): ShipmentStatus => {
       if (!e) return 'Pendiente';
       switch (e) {
         case 'ENTREGADO': return 'Entregado';
@@ -88,18 +95,18 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
       origin: d.district ? `${d.district}${d.region ? ', ' + d.region : ''}` : 'Planta Central',
       destination: d.destinationAddress ?? d.destination ?? '',
       carrier: d.carrierName ?? 'Pendiente',
-      status: mapEstado(d.status),
+      status: mapEstado(d.status ?? ''),
       estimatedDelivery: d.estimatedDate ? String(d.estimatedDate) : '',
       itemsCount: d.itemsCount ?? 1,
       weight: d.weight ?? 0,
       priority: d.priority ?? 'Media',
-      timeline: (d.tracking ?? []).map((s: any) => ({
-        status: `Estatus: ${mapEstado(s.status)}`,
+      timeline: (d.tracking ?? []).map((s: ShipmentTrackingDto) => ({
+        status: `Estatus: ${mapEstado(s.status ?? '')}`,
         location: s.location ?? '',
         timestamp: s.createdAt ? new Date(s.createdAt).toISOString().substring(0,16).replace('T',' ') : '',
         description: s.comment ?? ''
       }))
-    } as Shipment;
+    };
   }
 
   const handleCreateShipment = (e: React.FormEvent) => {
@@ -140,7 +147,7 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
     // Try to POST to BFF if available; otherwise call provided callback
     (async () => {
       try {
-        const payload = {
+        const payload: CreateShipmentPayload = {
           orderId: 1, // default logical ID
           carrierId: 1, // default carrier ID
           destinationAddress: destination,
@@ -166,7 +173,7 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
     setItemsCount(5);
   };
 
-  const handleUpdateStatusLocal = (status: 'Entregado' | 'En Tránsito' | 'Pendiente' | 'Retrasado') => {
+  const handleUpdateStatusLocal = (status: ShipmentStatus) => {
     if (!selectedShipment) return;
     onUpdateShipmentStatus?.(selectedShipment.id, status);
 
@@ -184,7 +191,7 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
 
     (async () => {
       try {
-        const body = {
+        const body: UpdateShipmentStatusPayload = {
           status: mapToEnum(status),
           location: status === 'Entregado' ? selectedShipment.destination : 'Centro de Distribución Intermedio',
           comment: `Actualizado manualmente a ${status}`,
@@ -200,7 +207,7 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
     })();
   };
 
-  const applyLocalStatusUpdate = (status: 'Entregado' | 'En Tránsito' | 'Pendiente' | 'Retrasado') => {
+  const applyLocalStatusUpdate = (status: ShipmentStatus) => {
     setSelectedShipment(prev => {
       if (!prev) return null;
       const newTimelineNode = {
@@ -226,7 +233,7 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
       try {
         const data = await api.getShipments();
         if (!mounted) return;
-        const mapped = (data || []).map((d: any) => mapDtoToShipment(d));
+        const mapped = (data || []).map((d) => mapDtoToShipment(d));
         setRemoteShipments(mapped);
       } catch (err) {
         // ignore — keep using props or empty
@@ -353,7 +360,7 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
               <label className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">PRIORIDAD DE CARRETERA</label>
               <select
                 value={priority}
-                onChange={(e) => setPriority(e.target.value as any)}
+                onChange={(e) => setPriority(e.target.value as ShipmentPriority)}
                 className="w-full px-2 py-2 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-[#006a61]/10 focus:border-[#006a61] outline-none bg-white font-semibold"
               >
                 <option value="Alta">Alta</option>
@@ -427,7 +434,7 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
             <span className="text-slate-400 font-bold">Ordenar por:</span>
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
+              onChange={(e) => setSortBy(e.target.value as SortKey)}
               className="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold outline-none bg-white cursor-pointer"
             >
               <option value="estimatedDelivery">Entrega Estimada</option>
@@ -609,7 +616,7 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
                     {['En Tránsito', 'Entregado', 'Pendiente', 'Retrasado'].map((statusOption) => (
                       <button
                         key={statusOption}
-                        onClick={() => handleUpdateStatusLocal(statusOption as any)}
+                        onClick={() => handleUpdateStatusLocal(statusOption as ShipmentStatus)}
                         className={`px-2 py-1.5 rounded transition-all text-[10px] font-bold border cursor-pointer ${
                           selectedShipment.status === statusOption 
                             ? 'bg-slate-900 border-slate-900 text-white shadow-xs' 

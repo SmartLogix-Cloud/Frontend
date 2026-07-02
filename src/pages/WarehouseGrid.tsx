@@ -7,7 +7,7 @@ import {
   Trash2,
   Grid
 } from 'lucide-react';
-import { Product } from '../types';
+import { Product, ProductCategory } from '../types';
 
 interface WarehouseGridProps {
   products: Product[];
@@ -24,7 +24,7 @@ export default function WarehouseGrid({ products, onAddProduct, onUpdateProductS
   // Form states to add high fidelity item
   const [isAddingMode, setIsAddingMode] = useState(false);
   const [formName, setFormName] = useState('');
-  const [formCategory, setFormCategory] = useState<'Electrónica' | 'Farmacéutico' | 'Automotriz' | 'Perecederos' | 'General'>('General');
+  const [formCategory, setFormCategory] = useState<ProductCategory>('General');
   const [formQty, setFormQty] = useState(100);
   const [formMinStock, setFormMinStock] = useState(15);
   const [formLocation, setFormLocation] = useState('Pasillo A - Estante B3');
@@ -145,7 +145,7 @@ export default function WarehouseGrid({ products, onAddProduct, onUpdateProductS
               <label className="text-[10px] font-bold tracking-widest text-slate-400 uppercase">CATEGORÍA</label>
               <select
                 value={formCategory}
-                onChange={(e) => setFormCategory(e.target.value as any)}
+                onChange={(e) => setFormCategory(e.target.value as ProductCategory)}
                 className="w-full px-2 py-2 border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-[#006a61]/10 focus:border-[#006a61] outline-none bg-white font-semibold"
               >
                 <option value="General">General</option>

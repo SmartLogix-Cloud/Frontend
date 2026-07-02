@@ -1,13 +1,53 @@
+// ============================================================
+// Alias de unión reutilizables
+// ============================================================
+export type ProductCategory =
+  | 'Electrónica'
+  | 'Farmacéutico'
+  | 'Automotriz'
+  | 'Perecederos'
+  | 'General';
+
+export type ProductStatus = 'Disponible' | 'Bajo Stock' | 'Agotado';
+
+export type ShipmentStatus = 'Entregado' | 'En Tránsito' | 'Pendiente' | 'Retrasado';
+
+export type ShipmentPriority = 'Alta' | 'Media' | 'Baja';
+
+export type LogType =
+  | 'shipment_update'
+  | 'inventory_alert'
+  | 'system_info'
+  | 'security_event';
+
+/** Estados de envío tal como los expone el backend (ms-shipping). */
+export type BackendShipmentState =
+  | 'CREADO'
+  | 'ASIGNADO'
+  | 'EN_RUTA'
+  | 'ENTREGADO'
+  | 'INCIDENCIA';
+
+// ============================================================
+// Modelos de dominio (frontend)
+// ============================================================
 export interface Product {
   id: string;
   name: string;
   sku: string;
-  category: 'Electrónica' | 'Farmacéutico' | 'Automotriz' | 'Perecederos' | 'General';
+  category: ProductCategory;
   quantity: number;
   minStock: number;
   location: string; // e.g. "Pasillo A - Estante B3"
-  status: 'Disponible' | 'Bajo Stock' | 'Agotado';
+  status: ProductStatus;
   lastUpdated: string;
+}
+
+export interface ShipmentTimelineStep {
+  status: string;
+  location: string;
+  timestamp: string;
+  description: string;
 }
 
 export interface Shipment {
@@ -16,18 +56,13 @@ export interface Shipment {
   origin: string;
   destination: string;
   carrier: string;
-  status: 'Entregado' | 'En Tránsito' | 'Pendiente' | 'Retrasado';
+  status: ShipmentStatus;
   estimatedDelivery: string;
   itemsCount: number;
   weight: number; // in kg
-  priority: 'Alta' | 'Media' | 'Baja';
+  priority: ShipmentPriority;
   lastCoordinates?: { lat: number; lng: number };
-  timeline: {
-    status: string;
-    location: string;
-    timestamp: string;
-    description: string;
-  }[];
+  timeline: ShipmentTimelineStep[];
 }
 
 export interface WarehouseZone {
@@ -42,7 +77,7 @@ export interface WarehouseZone {
 export interface LogisticsLog {
   id: string;
   timestamp: string;
-  type: 'shipment_update' | 'inventory_alert' | 'system_info' | 'security_event';
+  type: LogType;
   message: string;
   operator: string;
 }
@@ -52,4 +87,86 @@ export interface UserProfile {
   email: string;
   company: string;
   role: string;
+}
+
+// ============================================================
+// DTOs del backend (formas crudas que devuelven los MS/BFF)
+// ============================================================
+export interface ShipmentTrackingDto {
+  status?: string;
+  location?: string;
+  createdAt?: string;
+  comment?: string;
+}
+
+/** Forma cruda de un envío tal como llega del BFF/ms-shipping. */
+export interface ShipmentDto {
+  shipmentId?: number;
+  id?: number | string;
+  trackingNumber?: string;
+  district?: string;
+  region?: string;
+  destinationAddress?: string;
+  destination?: string;
+  carrierName?: string;
+  status?: string;
+  estimatedDate?: string;
+  itemsCount?: number;
+  weight?: number;
+  priority?: ShipmentPriority;
+  tracking?: ShipmentTrackingDto[];
+}
+
+export interface CreateShipmentPayload {
+  orderId: number;
+  carrierId?: number;
+  trackingNumber?: string;
+  destinationAddress: string;
+  estimatedDate?: string;
+}
+
+export interface UpdateShipmentStatusPayload {
+  status: string;
+  location: string;
+  comment: string;
+}
+
+// ============================================================
+// Autenticación
+// ============================================================
+export interface AuthResponse {
+  accessToken: string;
+}
+
+export interface JwtPayload {
+  sub?: string;
+  email?: string;
+  name?: string;
+  role?: string;
+  scope?: string;
+  exp?: number;
+}
+
+// ============================================================
+// AI Hub
+// ============================================================
+export interface OptimizationReport {
+  trackingNumber: string;
+  origin: string;
+  destination: string;
+  carrier: string;
+  originalDistance: string;
+  optimizedDistance: string;
+  fuelSavings: string;
+  timeSavings: string;
+  alternativeNodes: string[];
+  rationale: string;
+}
+
+export type ChatSender = 'user' | 'ia';
+
+export interface ChatMessage {
+  sender: ChatSender;
+  text: string;
+  time: string;
 }

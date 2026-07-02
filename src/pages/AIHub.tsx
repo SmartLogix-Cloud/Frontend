@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
-import { 
-  Bot, 
-  Send, 
-  CheckCircle, 
-  RefreshCw, 
-  Cpu, 
-  Route, 
-  Sparkles, 
+import {
+  Bot,
+  Send,
+  CheckCircle,
+  RefreshCw,
+  Cpu,
+  Route,
+  Sparkles,
   Zap
 } from 'lucide-react';
-import { Shipment, Product } from '../types';
+import { Shipment, Product, OptimizationReport, ChatMessage } from '../types';
+import { isGeminiEnabled, generateText, generateJson } from '../client/geminiClient';
+import { getErrorMessage } from '../client/apiClient';
 
 interface AIHubProps {
   shipments: Shipment[];
@@ -17,14 +19,24 @@ interface AIHubProps {
   onLogMessage: (type: 'shipment_update' | 'inventory_alert' | 'system_info', message: string) => void;
 }
 
+/** Forma cruda del JSON que pedimos a Gemini para la optimización de ruta. */
+interface GeminiOptimizationRaw {
+  originalDistanceKm: number;
+  optimizedDistanceKm: number;
+  fuelSavingsPercent: number;
+  timeSavingsHours: number;
+  alternativeNodes: string[];
+  rationale: string;
+}
+
 export default function AIHub({ shipments, products, onLogMessage }: AIHubProps) {
   const [selectedShipId, setSelectedShipId] = useState<string>('');
   const [isOptimizing, setIsOptimizing] = useState(false);
-  const [optimizationReport, setOptimizationReport] = useState<any | null>(null);
+  const [optimizationReport, setOptimizationReport] = useState<OptimizationReport | null>(null);
 
   // Chatbot states
   const [chatInput, setChatInput] = useState('');
-  const [chatMessages, setChatMessages] = useState<Array<{ sender: 'user' | 'ia'; text: string; time: string }>>([
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
       sender: 'ia',
       text: 'Estimado operador. Soy el Asistente Logístico Integrado de SmartLogix. Puedo ayudarte a evaluar demoras en carretera, optimizar la disposición de mercancías dentro de los racks RFID, o predecir faltas de stock en base a tu inventario actual. ¿Qué requieres auditar hoy?',
@@ -33,42 +45,125 @@ export default function AIHub({ shipments, products, onLogMessage }: AIHubProps)
   ]);
   const [isTyping, setIsTyping] = useState(false);
 
+  /** Genera un reporte simulado localmente (fallback cuando Gemini no está disponible o falla). */
+  const buildSimulatedReport = (targetShip: Shipment): OptimizationReport => {
+    const fuelSavings = Math.floor(12 + Math.random() * 15);
+    const timeSavings = Math.floor(4 + Math.random() * 8);
+    const originalDistance = Math.floor(300 + Math.random() * 1200);
+    const optimizedDistance = Math.round(originalDistance * (1 - fuelSavings / 100));
+
+    return {
+      trackingNumber: targetShip.trackingNumber,
+      origin: targetShip.origin,
+      destination: targetShip.destination,
+      carrier: targetShip.carrier,
+      originalDistance: `${originalDistance} km`,
+      optimizedDistance: `${optimizedDistance} km`,
+      fuelSavings: `${fuelSavings}%`,
+      timeSavings: `${timeSavings} horas`,
+      alternativeNodes: ['Muelle Hub Regional B', 'Autopista Central Expresa 09', 'Aduana Fronteriza Integrada'],
+      rationale: `El algoritmo de SmartLogix determinó que el transportista ${targetShip.carrier} puede evitar la congestión por mal clima o tráfico pesado desviando el camión por el nodo Hub Regional B. Esto reduce el consumo de combustible de forma sustentable y garantiza la entrega on-track.`
+    };
+  };
+
+  /** Solicita a Gemini una optimización de ruta y la normaliza al modelo OptimizationReport. */
+  const requestGeminiOptimization = async (targetShip: Shipment): Promise<OptimizationReport> => {
+    const prompt =
+      `Eres un optimizador logístico de transporte de carga. Para el siguiente envío propón una ruta más eficiente ` +
+      `(menor distancia, menor combustible y menor tiempo) evitando congestión y mal clima.\n` +
+      `Envío: origen "${targetShip.origin}", destino "${targetShip.destination}", transportista "${targetShip.carrier}", ` +
+      `peso ${targetShip.weight} kg, prioridad ${targetShip.priority}.\n` +
+      `Responde SOLO un objeto JSON con esta forma exacta (sin texto adicional): ` +
+      `{"originalDistanceKm": number, "optimizedDistanceKm": number, "fuelSavingsPercent": number, ` +
+      `"timeSavingsHours": number, "alternativeNodes": [string, string, string], "rationale": string en español}.`;
+
+    const raw = await generateJson<GeminiOptimizationRaw>(prompt);
+
+    return {
+      trackingNumber: targetShip.trackingNumber,
+      origin: targetShip.origin,
+      destination: targetShip.destination,
+      carrier: targetShip.carrier,
+      originalDistance: `${Math.round(raw.originalDistanceKm)} km`,
+      optimizedDistance: `${Math.round(raw.optimizedDistanceKm)} km`,
+      fuelSavings: `${Math.round(raw.fuelSavingsPercent)}%`,
+      timeSavings: `${Math.round(raw.timeSavingsHours)} horas`,
+      alternativeNodes: raw.alternativeNodes ?? [],
+      rationale: raw.rationale,
+    };
+  };
+
   // Optimiser logic trigger
-  const handleRunOptimization = () => {
+  const handleRunOptimization = async () => {
     if (!selectedShipId) return;
+    const targetShip = shipments.find(s => s.id === selectedShipId);
+    if (!targetShip) return;
+
     setIsOptimizing(true);
     setOptimizationReport(null);
 
-    const targetShip = shipments.find(s => s.id === selectedShipId);
-
-    setTimeout(() => {
+    try {
+      const report = isGeminiEnabled()
+        ? await requestGeminiOptimization(targetShip)
+        : buildSimulatedReport(targetShip);
+      setOptimizationReport(report);
+      onLogMessage('system_info', `Optimización de Ruta IA ejecutada con éxito para envío ${targetShip.trackingNumber}. Ahorros estimados de ${report.fuelSavings}.`);
+    } catch (err) {
+      // Si Gemini falla, caemos al modo simulado para no romper la UX.
+      const report = buildSimulatedReport(targetShip);
+      setOptimizationReport(report);
+      onLogMessage('system_info', `Optimización (modo local) para envío ${targetShip.trackingNumber}: ${getErrorMessage(err)}`);
+    } finally {
       setIsOptimizing(false);
-      if (!targetShip) return;
-
-      const fuelSavings = Math.floor(12 + Math.random() * 15);
-      const timeSavings = Math.floor(4 + Math.random() * 8);
-      const originalDistance = Math.floor(300 + Math.random() * 1200);
-      const optimizedDistance = Math.round(originalDistance * (1 - (fuelSavings / 100)));
-
-      setOptimizationReport({
-        trackingNumber: targetShip.trackingNumber,
-        origin: targetShip.origin,
-        destination: targetShip.destination,
-        carrier: targetShip.carrier,
-        originalDistance: `${originalDistance} km`,
-        optimizedDistance: `${optimizedDistance} km`,
-        fuelSavings: `${fuelSavings}%`,
-        timeSavings: `${timeSavings} horas`,
-        alternativeNodes: ['Muelle Hub Regional B', 'Autopista Central Expresa 09', 'Aduana Fronteriza Integrada'],
-        rationale: `El algoritmo de SmartLogix determinó que el transportista ${targetShip.carrier} puede evitar la congestión por mal clima o tráfico pesado desviando el camión por el nodo Hub Regional B. Esto reduce el consumo de combustible de forma sustentable y garantiza la entrega on-track.`
-      });
-
-      onLogMessage('system_info', `Optimización de Ruta IA ejecutada con éxito para envío ${targetShip.trackingNumber}. Ahorros estimados del ${fuelSavings}%.`);
-    }, 1500);
+    }
   };
 
+  /** Respuesta simulada por reglas (fallback cuando Gemini no está disponible o falla). */
+  const buildSimulatedReply = (userText: string): string => {
+    const query = userText.toLowerCase();
+
+    if (query.includes('stock') || query.includes('inventario') || query.includes('reabastecer') || query.includes('almacen')) {
+      const lowStockItems = products.filter(p => p.status === 'Bajo Stock');
+      if (lowStockItems.length > 0) {
+        return `Reporte de almacenamiento IA: Actualmente tienes ${lowStockItems.length} lotes con stock bajo criticidad (${lowStockItems.slice(0, 2).map(p => p.name).join(', ')}). Le sugiero emitir una orden de reabastecimiento en el módulo de "Almacenes Inteligentes" para rellenar al menos 50 unidades de cada uno antes del fin de semana.`;
+      }
+      return "La auditoría de tus Racks RFID indica niveles saludables de almacenamiento. Todos los lotes están por encima del límite crítico de seguridad.";
+    }
+
+    if (query.includes('retraso') || query.includes('demoras') || query.includes('atrasado') || query.includes('shipping')) {
+      const delayedList = shipments.filter(s => s.status === 'Retrasado');
+      if (delayedList.length > 0) {
+        return `He detectado ${delayedList.length} envío(s) con estatus RETRASADO. El envío ${delayedList[0].trackingNumber} hacia ${delayedList[0].destination} presenta desvíos climatológicos. Te sugiero correr el 'Optimizador de Ruta IA' en el panel izquierdo de este mismo módulo para recalcular un desvío intermedio.`;
+      }
+      return "Felicidades, todas tus rutas activas muestran estatus 'En Tránsito' o 'Entregado'. No se reportan anomalías de carreteras en las matrices satelitales.";
+    }
+
+    if (query.includes('hola') || query.includes('buenas') || query.includes('buenos') || query.includes('ayuda')) {
+      return "¡Hola! Estoy listo para apoyarte en el control logístico. Puedes consultarme cosas como: '¿Qué productos tienen bajo stock?', '¿Tengo rutas con demoras?' o pedirme consejos sobre optimización sustentable de transporte.";
+    }
+
+    return `Entendido. He analizado tu consulta sobre "${userText}". Sincronizando con la base de datos de SmartLogix... Te sugiero mantener vigilado el transportista prioritario. Mi sugerencia general es automatizar la recepción RFID de bultos pesados para evitar cuellos de botella en la terminal general.`;
+  };
+
+  /** Construye una instrucción de sistema con el contexto operativo actual para Gemini. */
+  const buildChatContext = (): string => {
+    const lowStock = products.filter(p => p.status === 'Bajo Stock').map(p => p.name);
+    const delayed = shipments.filter(s => s.status === 'Retrasado').map(s => s.trackingNumber);
+    return (
+      `Eres "Logix-AI Scout", el asistente logístico de SmartLogix. Respondes en español, de forma breve, ` +
+      `profesional y accionable, en el dominio de inventario, almacenes, envíos y optimización de rutas.\n` +
+      `Contexto actual: ${products.length} productos, ${shipments.length} envíos. ` +
+      `Productos con bajo stock: ${lowStock.length ? lowStock.join(', ') : 'ninguno'}. ` +
+      `Envíos retrasados: ${delayed.length ? delayed.join(', ') : 'ninguno'}.`
+    );
+  };
+
+  /** Pide a Gemini una respuesta de chat usando el contexto operativo. */
+  const requestGeminiChat = (userText: string): Promise<string> =>
+    generateText(userText, buildChatContext());
+
   // Chat message submit
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
 
@@ -79,35 +174,18 @@ export default function AIHub({ shipments, products, onLogMessage }: AIHubProps)
     setChatInput('');
     setIsTyping(true);
 
-    // Simulate intelligent answers
-    setTimeout(() => {
-      setIsTyping(false);
-      let replyText = '';
+    let replyText: string;
+    try {
+      replyText = isGeminiEnabled()
+        ? await requestGeminiChat(userText)
+        : buildSimulatedReply(userText);
+    } catch {
+      // Si Gemini falla, respondemos con la lógica local.
+      replyText = buildSimulatedReply(userText);
+    }
 
-      const query = userText.toLowerCase();
-
-      if (query.includes('stock') || query.includes('inventario') || query.includes('reabastecer') || query.includes('almacen')) {
-        const lowStockItems = products.filter(p => p.status === 'Bajo Stock');
-        if (lowStockItems.length > 0) {
-          replyText = `Reporte de almacenamiento IA: Actualmente tienes ${lowStockItems.length} lotes con stock bajo criticidad (${lowStockItems.slice(0, 2).map(p => p.name).join(', ')}). Le sugiero emitir una orden de reabastecimiento en el módulo de "Almacenes Inteligentes" para rellenar al menos 50 unidades de cada uno antes del fin de semana.`;
-        } else {
-          replyText = "La auditoría de tus Racks RFID indica niveles saludables de almacenamiento. Todos los lotes están por encima del límite crítico de seguridad.";
-        }
-      } else if (query.includes('retraso') || query.includes('demoras') || query.includes('atrasado') || query.includes('shipping')) {
-        const delayedList = shipments.filter(s => s.status === 'Retrasado');
-        if (delayedList.length > 0) {
-          replyText = `He detectado ${delayedList.length} envío(s) con estatus RETRASADO. El envío ${delayedList[0].trackingNumber} hacia ${delayedList[0].destination} presenta desvíos climatológicos. Te sugiero correr el 'Optimizador de Ruta IA' en el panel izquierdo de este mismo módulo para recalcular un desvío intermedio.`;
-        } else {
-          replyText = "Felicidades, todas tus rutas activas muestran estatus 'En Tránsito' o 'Entregado'. No se reportan anomalías de carreteras en las matrices satelitales.";
-        }
-      } else if (query.includes('hola') || query.includes('buenas') || query.includes('buenos') || query.includes('ayuda')) {
-        replyText = "¡Hola! Estoy listo para apoyarte en el control logístico. Puedes consultarme cosas como: '¿Qué productos tienen bajo stock?', '¿Tengo rutas con demoras?' o pedirme consejos sobre optimización sustentable de transporte.";
-      } else {
-        replyText = `Entendido. He analizado tu consulta sobre "${userText}". Sincronizando con la base de datos de SmartLogix... Te sugiero mantener vigilado el transportista prioritario. Mi sugerencia general es automatizar la recepción RFID de bultos pesados para evitar cuellos de botella en la terminal general.`;
-      }
-
-      setChatMessages(prev => [...prev, { sender: 'ia', text: replyText, time: new Date().toLocaleTimeString().substring(0, 5) }]);
-    }, 1200);
+    setChatMessages(prev => [...prev, { sender: 'ia', text: replyText, time: new Date().toLocaleTimeString().substring(0, 5) }]);
+    setIsTyping(false);
   };
 
   return (

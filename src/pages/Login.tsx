@@ -16,7 +16,7 @@ import {
   Building2
 } from 'lucide-react';
 import { UserProfile } from '../types';
-import { api, getUserProfileFromToken } from '../client/apiClient';
+import { api, getUserProfileFromToken, getErrorMessage } from '../client/apiClient';
 
 interface LoginProps {
   onLoginSuccess: (user: UserProfile) => void;
@@ -89,8 +89,8 @@ export default function Login({ onLoginSuccess }: LoginProps) {
           setErrorMsg('No se pudo decodificar el token de usuario.');
         }
       }
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Error al conectar con el servidor.');
+    } catch (err) {
+      setErrorMsg(getErrorMessage(err) || 'Error al conectar con el servidor.');
     } finally {
       setIsLoading(false);
     }
