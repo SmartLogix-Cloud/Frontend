@@ -10,6 +10,10 @@ RUN npm install --no-audit --no-fund
 COPY tsconfig.json vite.config.ts index.html ./
 COPY src ./src
 
+# DSN de GlitchTip: Vite lo hornea en el build del SPA. Vacio por defecto (no-op).
+ARG VITE_GLITCHTIP_DSN=
+ENV VITE_GLITCHTIP_DSN=$VITE_GLITCHTIP_DSN
+
 RUN npm run build
 
 # ============================================================

@@ -1,10 +1,24 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
+import * as Sentry from '@sentry/react';
 import App from './App.tsx';
 import './index.css';
 
+// Monitoreo de errores con GlitchTip (compatible con el SDK de Sentry).
+// El DSN se hornea en build via Vite; si esta vacio, init() queda en no-op.
+const dsn = import.meta.env.VITE_GLITCHTIP_DSN;
+if (dsn) {
+  Sentry.init({
+    dsn,
+    environment: import.meta.env.MODE,
+    tracesSampleRate: 0.1,
+  });
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <Sentry.ErrorBoundary fallback={<p>Ocurrió un error inesperado. Recarga la página.</p>}>
+      <App />
+    </Sentry.ErrorBoundary>
   </StrictMode>,
 );
