@@ -2,6 +2,7 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import * as Sentry from '@sentry/react';
 import App from './App.tsx';
+import GlitchTipDemo from './components/GlitchTipDemo.tsx';
 import './index.css';
 
 // Monitoreo de errores con GlitchTip (compatible con el SDK de Sentry).
@@ -19,6 +20,7 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <Sentry.ErrorBoundary fallback={<p>Ocurrió un error inesperado. Recarga la página.</p>}>
       <App />
+      <GlitchTipDemo />
     </Sentry.ErrorBoundary>
   </StrictMode>,
 );
