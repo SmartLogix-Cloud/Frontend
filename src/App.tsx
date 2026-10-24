@@ -8,6 +8,8 @@ import {
   ShipmentTrackingDto,
   ShipmentStatus,
   LogType,
+  Order,
+  OrderStatus
 } from './types';
 import Login from './pages/Login';
 import Sidebar from './components/Sidebar';
@@ -15,6 +17,7 @@ import DashboardHome from './pages/DashboardHome';
 import WarehouseGrid from './pages/WarehouseGrid';
 import ShipmentTable from './pages/ShipmentTable';
 import AIHub from './pages/AIHub';
+import { OrdersView } from './pages/OrdersView'; // 1. Importamos la vista de órdenes
 import { INITIAL_LOGS } from './data/mockData';
 import {
   api,
@@ -24,13 +27,52 @@ import {
   getErrorMessage,
 } from './client/apiClient';
 
+// Datos de prueba mockeados para OrdersView hasta conectar el endpoint de pedidos
+const INITIAL_ORDERS: Order[] = [
+  {
+    id: '#ORD-9821',
+    client: { name: 'Comercializadora del Sur', company: 'Comercializadora S.A.', initials: 'CS' },
+    date: '23 Oct, 2026',
+    dateRaw: '2026-10-23',
+    amount: 1450000.00,
+    status: 'Pendiente'
+  },
+  {
+    id: '#ORD-9822',
+    client: { name: 'Distribuidora Central', company: 'Distribuidora Central SpA', initials: 'DC' },
+    date: '22 Oct, 2026',
+    dateRaw: '2026-10-22',
+    amount: 890500.50,
+    status: 'Aprobado'
+  },
+  {
+    id: '#ORD-9823',
+    client: { name: 'Logística Express CL', company: 'Logística Express', initials: 'LE' },
+    date: '21 Oct, 2026',
+    dateRaw: '2026-10-21',
+    amount: 3200000.00,
+    status: 'En Preparación'
+  },
+  {
+    id: '#ORD-9824',
+    client: { name: 'Retail del Norte', company: 'Retail Norte Ltda.', initials: 'RN' },
+    date: '20 Oct, 2026',
+    dateRaw: '2026-10-20',
+    amount: 650000.00,
+    status: 'Enviado'
+  }
+];
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
-  const [currentTab, setCurrentTab] = useState<'overview' | 'warehouse' | 'shipments' | 'ai-hub'>('overview');
+  
+  // 2. Extendemos currentTab para incluir 'orders'
+  const [currentTab, setCurrentTab] = useState<'overview' | 'warehouse' | 'shipments' | 'orders' | 'ai-hub'>('overview');
 
   // Operational states
   const [products, setProducts] = useState<Product[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
+  const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
   const [logs, setLogs] = useState<LogisticsLog[]>(INITIAL_LOGS);
 
   const mapEstado = (e: string): ShipmentStatus => {
@@ -208,8 +250,19 @@ export default function App() {
     }));
   };
 
+  // 3. Handlers para las acciones del módulo de Pedidos (OrdersView)
+  const handleUpdateOrderStatus = (orderId: string, status: OrderStatus) => {
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
+    appendLog('system_info', `Orden ${orderId} modificada a estado: ${status}.`, currentUser?.name || 'Operador');
+  };
+
+  const handleDeleteOrder = (orderId: string) => {
+    setOrders(prev => prev.filter(o => o.id !== orderId));
+    appendLog('system_info', `Orden ${orderId} fue cancelada y removida del panel.`, currentUser?.name || 'Operador');
+  };
+
   // Switch tab helper
-  const handleNavigateToTab = (tab: 'overview' | 'warehouse' | 'shipments' | 'ai-hub') => {
+  const handleNavigateToTab = (tab: 'overview' | 'warehouse' | 'shipments' | 'orders' | 'ai-hub') => {
     setCurrentTab(tab);
   };
 
@@ -225,7 +278,7 @@ export default function App() {
           {/* Main lateral fixed navigation panel */}
           <Sidebar 
             currentTab={currentTab} 
-            setCurrentTab={setCurrentTab} 
+            setCurrentTab={setCurrentTab as any} 
             user={currentUser} 
             onLogout={handleLogout} 
           />
@@ -240,6 +293,18 @@ export default function App() {
                 shipments={shipments} 
                 logs={logs} 
                 onNavigateToTab={handleNavigateToTab} 
+              />
+            )}
+
+            {currentTab === 'orders' && (
+              <OrdersView 
+                orders={orders}
+                onOpenNewOrderModal={() => alert("Modal para generar nuevo pedido")}
+                onOpenOrderDetails={(order) => alert(`Ficha completa de la orden: ${order.id}`)}
+                onOpenValidateModal={(order) => handleUpdateOrderStatus(order.id, 'Aprobado')}
+                onOpenAssignWarehouseModal={(order) => handleUpdateOrderStatus(order.id, 'En Preparación')}
+                onUpdateOrderStatus={handleUpdateOrderStatus}
+                onDeleteOrder={handleDeleteOrder}
               />
             )}
 
