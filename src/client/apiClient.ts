@@ -1,26 +1,14 @@
 import {
   Product,
-  UserProfile,
-  AuthResponse,
-  JwtPayload,
   ShipmentDto,
   CreateShipmentPayload,
   UpdateShipmentStatusPayload,
+  OrderDto,
 } from '../types';
+import { msalInstance, apiTokenRequest } from '../auth/msalConfig';
+import { InteractionRequiredAuthError } from '@azure/msal-browser';
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '/api';
-
-export function getStoredToken(): string | null {
-  return localStorage.getItem('token');
-}
-
-export function setStoredToken(token: string) {
-  localStorage.setItem('token', token);
-}
-
-export function removeStoredToken() {
-  localStorage.removeItem('token');
-}
 
 /** Extrae un mensaje legible de cualquier valor capturado en un catch. */
 export function getErrorMessage(err: unknown): string {
@@ -29,32 +17,22 @@ export function getErrorMessage(err: unknown): string {
   return 'Error inesperado';
 }
 
-export function parseJwt(token: string): JwtPayload | null {
+/**
+ * Adquiere el Access Token (JWT) de Entra para el scope de la API.
+ * Intenta en silencio (cache/refresh); si Entra exige interacción, redirige al login.
+ */
+async function getAccessToken(): Promise<string | null> {
+  const account = msalInstance.getActiveAccount() ?? msalInstance.getAllAccounts()[0];
+  if (!account) return null;
   try {
-    const base64Url = token.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(
-      window
-        .atob(base64)
-        .split('')
-        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-        .join('')
-    );
-    return JSON.parse(jsonPayload) as JwtPayload;
-  } catch {
+    const result = await msalInstance.acquireTokenSilent({ ...apiTokenRequest, account });
+    return result.accessToken;
+  } catch (err) {
+    if (err instanceof InteractionRequiredAuthError) {
+      await msalInstance.acquireTokenRedirect({ ...apiTokenRequest, account });
+    }
     return null;
   }
-}
-
-export function getUserProfileFromToken(token: string): UserProfile | null {
-  const payload = parseJwt(token);
-  if (!payload) return null;
-  return {
-    name: payload.name || 'Usuario',
-    email: payload.sub || payload.email || '',
-    company: 'SmartLogix Partner',
-    role: payload.role || 'USER',
-  };
 }
 
 interface ApiErrorBody {
@@ -63,7 +41,7 @@ interface ApiErrorBody {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getStoredToken();
+  const token = await getAccessToken();
   const headers = new Headers(options.headers || {});
 
   if (token) {
@@ -73,10 +51,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers.set('Content-Type', 'application/json');
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
+  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
   if (!response.ok) {
     let errorDetail = 'Error en la petición';
@@ -94,24 +69,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
-  async login(email: string, password: string): Promise<AuthResponse> {
-    const response = await request<AuthResponse>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    });
-    if (response?.accessToken) {
-      setStoredToken(response.accessToken);
-    }
-    return response;
-  },
-
-  async register(name: string, email: string, password: string): Promise<void> {
-    await request<void>('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({ name, email, password }),
-    });
-  },
-
+  // --- Inventario ---
   async getProducts(): Promise<Product[]> {
     return request<Product[]>('/inventory/products-with-stock');
   },
@@ -130,7 +88,7 @@ export const api = {
     });
   },
 
-  // Map to ms-inventory/stock/in or out
+  // Mapea a ms-inventory/stock/in o /out
   async adjustProductStock(
     productId: number | string,
     warehouseId: number | string,
@@ -149,6 +107,7 @@ export const api = {
     });
   },
 
+  // --- Envíos ---
   async getShipments(): Promise<ShipmentDto[]> {
     return request<ShipmentDto[]>('/shipments');
   },
@@ -170,6 +129,12 @@ export const api = {
     });
   },
 
+  // --- Pedidos (ms-order) ---
+  async getOrders(): Promise<OrderDto[]> {
+    return request<OrderDto[]>('/orders');
+  },
+
+  // --- Dashboard ---
   async getDashboard(): Promise<Record<string, unknown>> {
     return request<Record<string, unknown>>('/dashboard');
   },

@@ -90,6 +90,32 @@ export interface UserProfile {
 }
 
 // ============================================================
+// Pedidos (OrdersView)
+// ============================================================
+/** Estado del pedido tal como lo muestra la UI. */
+export type OrderStatus =
+  | 'Pendiente'
+  | 'En Preparación'
+  | 'Aprobado'
+  | 'Enviado'
+  | 'Cancelado';
+
+export interface OrderClient {
+  name: string;
+  company?: string;
+  initials: string;
+}
+
+export interface Order {
+  id: string;
+  client: OrderClient;
+  date: string;     // fecha legible, ej. "23 Oct, 2026"
+  dateRaw: string;  // fecha ISO corta, ej. "2026-10-23" (para filtrar)
+  amount: number;
+  status: OrderStatus;
+}
+
+// ============================================================
 // DTOs del backend (formas crudas que devuelven los MS/BFF)
 // ============================================================
 export interface ShipmentTrackingDto {
@@ -115,6 +141,29 @@ export interface ShipmentDto {
   weight?: number;
   priority?: ShipmentPriority;
   tracking?: ShipmentTrackingDto[];
+}
+
+/** Forma cruda de un pedido tal como llega del BFF/ms-order (OrderDto). */
+export interface OrderItemDto {
+  productId?: number;
+  sku?: string;
+  quantity?: number;
+  unitPrice?: number;
+}
+
+export interface OrderDto {
+  orderId: number;
+  code?: string;
+  type?: string;
+  status?: string;        // enum del backend: PENDIENTE_PREPARACION, APROBADO, ...
+  customerId?: string;
+  marketplaceId?: string;
+  subtotal?: number;
+  tax?: number;
+  total?: number;
+  items?: OrderItemDto[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface CreateShipmentPayload {

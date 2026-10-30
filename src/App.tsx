@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   UserProfile,
   Product,
@@ -9,8 +9,10 @@ import {
   ShipmentStatus,
   LogType,
   Order,
-  OrderStatus
+  OrderStatus,
+  OrderDto
 } from './types';
+import { useMsal, useIsAuthenticated } from '@azure/msal-react';
 import Login from './pages/Login';
 import Sidebar from './components/Sidebar';
 import DashboardHome from './pages/DashboardHome';
@@ -19,60 +21,67 @@ import ShipmentTable from './pages/ShipmentTable';
 import AIHub from './pages/AIHub';
 import { OrdersView } from './pages/OrdersView'; // 1. Importamos la vista de órdenes
 import { INITIAL_LOGS } from './data/mockData';
-import {
-  api,
-  getStoredToken,
-  getUserProfileFromToken,
-  removeStoredToken,
-  getErrorMessage,
-} from './client/apiClient';
+import { api, getErrorMessage } from './client/apiClient';
 
-// Datos de prueba mockeados para OrdersView hasta conectar el endpoint de pedidos
-const INITIAL_ORDERS: Order[] = [
-  {
-    id: '#ORD-9821',
-    client: { name: 'Comercializadora del Sur', company: 'Comercializadora S.A.', initials: 'CS' },
-    date: '23 Oct, 2026',
-    dateRaw: '2026-10-23',
-    amount: 1450000.00,
-    status: 'Pendiente'
-  },
-  {
-    id: '#ORD-9822',
-    client: { name: 'Distribuidora Central', company: 'Distribuidora Central SpA', initials: 'DC' },
-    date: '22 Oct, 2026',
-    dateRaw: '2026-10-22',
-    amount: 890500.50,
-    status: 'Aprobado'
-  },
-  {
-    id: '#ORD-9823',
-    client: { name: 'Logística Express CL', company: 'Logística Express', initials: 'LE' },
-    date: '21 Oct, 2026',
-    dateRaw: '2026-10-21',
-    amount: 3200000.00,
-    status: 'En Preparación'
-  },
-  {
-    id: '#ORD-9824',
-    client: { name: 'Retail del Norte', company: 'Retail Norte Ltda.', initials: 'RN' },
-    date: '20 Oct, 2026',
-    dateRaw: '2026-10-20',
-    amount: 650000.00,
-    status: 'Enviado'
+// Mapea el estado del pedido del backend (ms-order) al estado que muestra la UI.
+const mapOrderStatus = (s?: string): OrderStatus => {
+  switch (s) {
+    case 'PENDIENTE_PREPARACION': return 'Pendiente';
+    case 'EN_PREPARACION': return 'En Preparación';
+    case 'APROBADO': return 'Aprobado';
+    case 'FINALIZADO': return 'Enviado';
+    case 'CANCELADO':
+    case 'RECHAZADO': return 'Cancelado';
+    default: return 'Pendiente';
   }
-];
+};
+
+const initialsFrom = (s: string): string => (s || '?').trim().slice(0, 2).toUpperCase();
+
+// Convierte el OrderDto crudo del BFF/ms-order al modelo Order de la UI.
+const mapDtoToOrder = (d: OrderDto): Order => {
+  return {
+    id: d.code ?? `#ORD-${d.orderId}`,
+    client: {
+      name: d.customerId ? `Cliente ${d.customerId}` : 'Cliente',
+      company: d.marketplaceId ?? undefined,
+      initials: initialsFrom(d.customerId ?? String(d.orderId)),
+    },
+    date: d.createdAt
+      ? new Date(d.createdAt).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })
+      : '',
+    dateRaw: d.createdAt ? d.createdAt.substring(0, 10) : '',
+    amount: Number(d.total ?? 0),
+    status: mapOrderStatus(d.status),
+  };
+};
 
 export default function App() {
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
-  
+  // --- Autenticación con Microsoft Entra ID (MSAL) ---
+  const { instance, accounts } = useMsal();
+  const isAuthenticated = useIsAuthenticated();
+
+  // El usuario se deriva de la cuenta activa de MSAL (claims del id token).
+  const currentUser: UserProfile | null = useMemo(() => {
+    const account = accounts[0];
+    if (!account) return null;
+    const claims = (account.idTokenClaims ?? {}) as Record<string, unknown>;
+    const roles = (claims.roles as string[] | undefined) ?? [];
+    return {
+      name: account.name ?? (claims.name as string | undefined) ?? 'Usuario',
+      email: account.username ?? (claims.preferred_username as string | undefined) ?? '',
+      company: 'SmartLogix',
+      role: roles[0] ?? 'Cliente',
+    };
+  }, [accounts]);
+
   // 2. Extendemos currentTab para incluir 'orders'
   const [currentTab, setCurrentTab] = useState<'overview' | 'warehouse' | 'shipments' | 'orders' | 'ai-hub'>('overview');
 
   // Operational states
   const [products, setProducts] = useState<Product[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
-  const [orders, setOrders] = useState<Order[]>(INITIAL_ORDERS);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [logs, setLogs] = useState<LogisticsLog[]>(INITIAL_LOGS);
 
   const mapEstado = (e: string): ShipmentStatus => {
@@ -124,36 +133,25 @@ export default function App() {
     } catch (err) {
       console.error("Error loading shipments:", err);
     }
+
+    try {
+      const rawOrders = await api.getOrders();
+      setOrders((rawOrders || []).map(mapDtoToOrder));
+    } catch (err) {
+      console.error("Error loading orders:", err);
+    }
   };
 
-  // Restore session on mount
+  // Carga los datos del backend cuando hay una sesión activa de Entra.
   useEffect(() => {
-    const token = getStoredToken();
-    if (token) {
-      const user = getUserProfileFromToken(token);
-      if (user) {
-        setCurrentUser(user);
-        loadData();
-      } else {
-        removeStoredToken();
-      }
+    if (isAuthenticated && accounts.length > 0) {
+      loadData();
     }
-  }, []);
+  }, [isAuthenticated]);
 
-  // Core functions
-  const handleLoginSuccess = (user: UserProfile) => {
-    setCurrentUser(user);
-    loadData();
-    appendLog('security_event', `Acceso exitoso al panel de control por el usuario ${user.email}.`, user.name);
-  };
-
+  // Cierra sesión en Entra (redirige al logout de Microsoft y vuelve a la app).
   const handleLogout = () => {
-    if (currentUser) {
-      appendLog('security_event', `Sesión finalizada de forma segura por ${currentUser.name}.`, 'Sistema');
-    }
-    removeStoredToken();
-    setCurrentUser(null);
-    setCurrentTab('overview');
+    instance.logoutRedirect();
   };
 
   const appendLog = (type: LogType, message: string, operator: string) => {
@@ -250,17 +248,6 @@ export default function App() {
     }));
   };
 
-  // 3. Handlers para las acciones del módulo de Pedidos (OrdersView)
-  const handleUpdateOrderStatus = (orderId: string, status: OrderStatus) => {
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status } : o));
-    appendLog('system_info', `Orden ${orderId} modificada a estado: ${status}.`, currentUser?.name || 'Operador');
-  };
-
-  const handleDeleteOrder = (orderId: string) => {
-    setOrders(prev => prev.filter(o => o.id !== orderId));
-    appendLog('system_info', `Orden ${orderId} fue cancelada y removida del panel.`, currentUser?.name || 'Operador');
-  };
-
   // Switch tab helper
   const handleNavigateToTab = (tab: 'overview' | 'warehouse' | 'shipments' | 'orders' | 'ai-hub') => {
     setCurrentTab(tab);
@@ -271,7 +258,7 @@ export default function App() {
       
       {/* Visual rendering condition */}
       {currentUser === null ? (
-        <Login onLoginSuccess={handleLoginSuccess} />
+        <Login />
       ) : (
         <div className="flex w-full min-h-screen bg-slate-50">
           
@@ -297,14 +284,10 @@ export default function App() {
             )}
 
             {currentTab === 'orders' && (
-              <OrdersView 
+              <OrdersView
                 orders={orders}
                 onOpenNewOrderModal={() => alert("Modal para generar nuevo pedido")}
                 onOpenOrderDetails={(order) => alert(`Ficha completa de la orden: ${order.id}`)}
-                onOpenValidateModal={(order) => handleUpdateOrderStatus(order.id, 'Aprobado')}
-                onOpenAssignWarehouseModal={(order) => handleUpdateOrderStatus(order.id, 'En Preparación')}
-                onUpdateOrderStatus={handleUpdateOrderStatus}
-                onDeleteOrder={handleDeleteOrder}
               />
             )}
 
