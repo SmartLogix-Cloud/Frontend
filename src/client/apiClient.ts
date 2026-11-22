@@ -4,6 +4,8 @@ import {
   CreateShipmentPayload,
   UpdateShipmentStatusPayload,
   OrderDto,
+  AnalyticsSummary,
+  StreamEvent,
 } from '../types';
 import { msalInstance, apiTokenRequest } from '../auth/msalConfig';
 import { InteractionRequiredAuthError } from '@azure/msal-browser';
@@ -137,5 +139,14 @@ export const api = {
   // --- Dashboard ---
   async getDashboard(): Promise<Record<string, unknown>> {
     return request<Record<string, unknown>>('/dashboard');
+  },
+
+  // --- Streaming / analitica en tiempo real (Kafka -> ms-analytics) ---
+  async getAnalyticsSummary(): Promise<AnalyticsSummary> {
+    return request<AnalyticsSummary>('/analytics/summary');
+  },
+
+  async getAnalyticsEvents(limit = 20): Promise<StreamEvent[]> {
+    return request<StreamEvent[]>(`/analytics/events?limit=${limit}`);
   },
 };

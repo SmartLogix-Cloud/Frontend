@@ -219,3 +219,30 @@ export interface ChatMessage {
   text: string;
   time: string;
 }
+
+// --- Streaming / analitica en tiempo real (ms-analytics, alimentado por Kafka) ---
+export interface AnalyticsSummary {
+  totalOrders: number;
+  ordersByStatus: Record<string, number>;
+  ordersByType: Record<string, number>;
+  activeRevenue: number;
+  totalShipments: number;
+  shipmentsByStatus: Record<string, number>;
+  activeIncidents: number;
+  deliveryRate: number;
+  eventsProcessed: number;
+  duplicatesIgnored: number;
+  lastEventAt: string | null;
+  generatedAt: string;
+}
+
+export interface StreamEvent {
+  topic: string;
+  partition: number;
+  offset: number;
+  eventType: string;
+  entityId: number;
+  status: string;
+  detail: string;
+  occurredAt: string;
+}

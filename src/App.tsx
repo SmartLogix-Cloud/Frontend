@@ -20,6 +20,7 @@ import WarehouseGrid from './pages/WarehouseGrid';
 import ShipmentTable from './pages/ShipmentTable';
 import AIHub from './pages/AIHub';
 import { OrdersView } from './pages/OrdersView'; // 1. Importamos la vista de órdenes
+import { StreamingView } from './pages/StreamingView';
 import { INITIAL_LOGS } from './data/mockData';
 import { api, getErrorMessage } from './client/apiClient';
 
@@ -76,7 +77,7 @@ export default function App() {
   }, [accounts]);
 
   // 2. Extendemos currentTab para incluir 'orders'
-  const [currentTab, setCurrentTab] = useState<'overview' | 'warehouse' | 'shipments' | 'orders' | 'ai-hub'>('overview');
+  const [currentTab, setCurrentTab] = useState<'overview' | 'warehouse' | 'shipments' | 'orders' | 'streaming' | 'ai-hub'>('overview');
 
   // Operational states
   const [products, setProducts] = useState<Product[]>([]);
@@ -249,7 +250,7 @@ export default function App() {
   };
 
   // Switch tab helper
-  const handleNavigateToTab = (tab: 'overview' | 'warehouse' | 'shipments' | 'orders' | 'ai-hub') => {
+  const handleNavigateToTab = (tab: 'overview' | 'warehouse' | 'shipments' | 'orders' | 'streaming' | 'ai-hub') => {
     setCurrentTab(tab);
   };
 
@@ -290,6 +291,8 @@ export default function App() {
                 onOpenOrderDetails={(order) => alert(`Ficha completa de la orden: ${order.id}`)}
               />
             )}
+
+            {currentTab === 'streaming' && <StreamingView />}
 
             {currentTab === 'warehouse' && (
               <WarehouseGrid 

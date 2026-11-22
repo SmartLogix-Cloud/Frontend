@@ -8,13 +8,14 @@ import {
   LogOut, 
   Database,
   Building2,
-  ShoppingCart
+  ShoppingCart,
+  Radio
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface SidebarProps {
-  currentTab: 'overview' | 'warehouse' | 'shipments' | 'orders' | 'ai-hub';
-  setCurrentTab: (tab: 'overview' | 'warehouse' | 'shipments' | 'orders' | 'ai-hub') => void;
+  currentTab: 'overview' | 'warehouse' | 'shipments' | 'orders' | 'streaming' | 'ai-hub';
+  setCurrentTab: (tab: 'overview' | 'warehouse' | 'shipments' | 'orders' | 'streaming' | 'ai-hub') => void;
   user: UserProfile;
   onLogout: () => void;
 }
@@ -23,6 +24,7 @@ export default function Sidebar({ currentTab, setCurrentTab, user, onLogout }: S
   const navItems = [
     { id: 'overview', label: 'Resumen Logístico', icon: BarChart3 },
     { id: 'orders', label: 'Procesamiento Pedidos', icon: ShoppingCart },
+    { id: 'streaming', label: 'Streaming en Vivo', icon: Radio },
     { id: 'warehouse', label: 'Almacenes Inteligentes', icon: Warehouse },
     { id: 'shipments', label: 'Seguimiento de Envíos', icon: Truck },
     { id: 'ai-hub', label: 'Optimizador Inteligente IA', icon: Bot },
