@@ -52,6 +52,7 @@ export interface ShipmentTimelineStep {
 
 export interface Shipment {
   id: string;
+  backendStatus?: string; // estado crudo de ms-shipping (LISTO_PARA_RETIRO, RETIRADO, ...)
   trackingNumber: string;
   origin: string;
   destination: string;
@@ -113,6 +114,25 @@ export interface Order {
   dateRaw: string;  // fecha ISO corta, ej. "2026-10-23" (para filtrar)
   amount: number;
   status: OrderStatus;
+  orderId: number;         // id numérico de ms-order (para PATCH /orders/{id}/status)
+  backendStatus?: string;  // estado crudo del backend (PENDIENTE_PREPARACION, APROBADO, ...)
+}
+
+/** Producto del catálogo de ms-inventory (GET /inventory/products), con precio. */
+export interface CatalogProduct {
+  productId: number;
+  sku: string;
+  name: string;
+  price: number;
+  active?: boolean;
+}
+
+/** Cuerpo de POST /orders (CreateOrderRequest de ms-order). */
+export interface CreateOrderPayload {
+  type: 'ESTANDAR' | 'EXPRESS';
+  customerId: string;
+  marketplaceId?: string;
+  items: { productId: number; sku: string; quantity: number; unitPrice: number }[];
 }
 
 // ============================================================

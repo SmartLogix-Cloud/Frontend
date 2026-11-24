@@ -4,6 +4,8 @@ import {
   CreateShipmentPayload,
   UpdateShipmentStatusPayload,
   OrderDto,
+  CatalogProduct,
+  CreateOrderPayload,
   AnalyticsSummary,
   StreamEvent,
 } from '../types';
@@ -134,6 +136,31 @@ export const api = {
   // --- Pedidos (ms-order) ---
   async getOrders(): Promise<OrderDto[]> {
     return request<OrderDto[]>('/orders');
+  },
+
+  /** Crea el pedido en ms-order: publica ORDER_CREATED en Kafka. */
+  async createOrder(payload: CreateOrderPayload): Promise<OrderDto> {
+    return request<OrderDto>('/orders', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  /**
+   * Cambia el estado del pedido (máquina de estados de ms-order).
+   * EN_PREPARACION dispara order.ready-for-shipment por RabbitMQ; todo cambio
+   * publica ORDER_STATUS_CHANGED en Kafka.
+   */
+  async updateOrderStatus(orderId: number, status: string, reason?: string): Promise<OrderDto> {
+    return request<OrderDto>(`/orders/${orderId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, reason }),
+    });
+  },
+
+  /** Catálogo de productos con precio (ms-inventory /products). */
+  async getCatalog(): Promise<CatalogProduct[]> {
+    return request<CatalogProduct[]>('/inventory/products');
   },
 
   // --- Dashboard ---

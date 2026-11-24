@@ -23,6 +23,7 @@ import { OrdersView } from './pages/OrdersView'; // 1. Importamos la vista de ó
 import { StreamingView } from './pages/StreamingView';
 import { INITIAL_LOGS } from './data/mockData';
 import { api, getErrorMessage } from './client/apiClient';
+import { NewOrderModal, OrderDetailsModal } from './components/OrderModals';
 
 // Mapea el estado del pedido del backend (ms-order) al estado que muestra la UI.
 const mapOrderStatus = (s?: string): OrderStatus => {
@@ -54,6 +55,8 @@ const mapDtoToOrder = (d: OrderDto): Order => {
     dateRaw: d.createdAt ? d.createdAt.substring(0, 10) : '',
     amount: Number(d.total ?? 0),
     status: mapOrderStatus(d.status),
+    orderId: d.orderId,
+    backendStatus: d.status,
   };
 };
 
@@ -84,15 +87,30 @@ export default function App() {
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [logs, setLogs] = useState<LogisticsLog[]>(INITIAL_LOGS);
+  const [newOrderOpen, setNewOrderOpen] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+
+  // Recarga solo los pedidos (tras crear o cambiar estado).
+  const reloadOrders = async () => {
+    try {
+      const rawOrders = await api.getOrders();
+      setOrders((rawOrders || []).map(mapDtoToOrder));
+    } catch (err) {
+      console.error("Error loading orders:", err);
+    }
+  };
 
   const mapEstado = (e: string): ShipmentStatus => {
     if (!e) return 'Pendiente';
+    // Estados reales de ms-shipping (ShipmentState).
     switch (e) {
       case 'ENTREGADO': return 'Entregado';
-      case 'EN_RUTA': return 'En Tránsito';
-      case 'ASIGNADO': return 'Pendiente';
-      case 'CREADO': return 'Pendiente';
-      case 'INCIDENCIA': return 'Retrasado';
+      case 'RETIRADO':
+      case 'EN_TRANSITO': return 'En Tránsito';
+      case 'RETRASADO':
+      case 'ENTREGA_FALLIDA':
+      case 'PERDIDO': return 'Retrasado';
+      case 'LISTO_PARA_RETIRO':
       default: return 'Pendiente';
     }
   };
@@ -100,6 +118,7 @@ export default function App() {
   const mapDtoToShipment = (d: ShipmentDto): Shipment => {
     return {
       id: String(d.shipmentId ?? d.id ?? Math.random().toString(36).substring(7)),
+      backendStatus: d.status,
       trackingNumber: d.trackingNumber ?? `ENV-${Math.floor(Math.random()*1e6)}`,
       origin: d.district ? `${d.district}${d.region ? ', ' + d.region : ''}` : 'Planta Central',
       destination: d.destinationAddress ?? d.destination ?? '',
@@ -287,8 +306,19 @@ export default function App() {
             {currentTab === 'orders' && (
               <OrdersView
                 orders={orders}
-                onOpenNewOrderModal={() => alert("Modal para generar nuevo pedido")}
-                onOpenOrderDetails={(order) => alert(`Ficha completa de la orden: ${order.id}`)}
+                onOpenNewOrderModal={() => setNewOrderOpen(true)}
+                onOpenOrderDetails={(order) => setSelectedOrder(order)}
+              />
+            )}
+
+            {newOrderOpen && (
+              <NewOrderModal onClose={() => setNewOrderOpen(false)} onCreated={reloadOrders} />
+            )}
+            {selectedOrder && (
+              <OrderDetailsModal
+                order={selectedOrder}
+                onClose={() => setSelectedOrder(null)}
+                onChanged={reloadOrders}
               />
             )}
 
