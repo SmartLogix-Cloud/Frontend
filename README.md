@@ -1,7 +1,7 @@
 # SmartLogix — Frontend
 
 Panel web (SPA) de la plataforma logística **SmartLogix**. Es la capa de presentación del
-caso de la asignatura **DSY1107 – Desarrollo Cloud Native I** (EP1 + EP2).
+caso de la asignatura **DSY1107 – Desarrollo Cloud Native I** (EP1 a EP3).
 
 Inicia sesión contra **Microsoft Entra ID** (OAuth 2.0 / OpenID Connect) usando **MSAL**,
 obtiene un **Access Token (JWT)** y consume el backend **a través del AWS API Gateway → BFF**,
@@ -12,6 +12,19 @@ que viaja en el claim `roles` del token.
 > Este repositorio contiene **solo el frontend**. El backend (microservicios, BFF,
 > `ms-broker-admin`, clúster RabbitMQ e infraestructura) vive en el repositorio
 > [`SmartLogix-Cloud/Backend`](https://github.com/SmartLogix-Cloud/Backend).
+
+## Funcionalidades
+
+| Vista | Qué hace | Backend |
+|---|---|---|
+| **Procesamiento Pedidos** | Lista pedidos. **Nuevo Pedido** (modal con el catálogo real) y **ficha del pedido** con solo las transiciones válidas: Aprobar, Pasar a preparación, Rechazar, Cancelar. | `GET/POST /orders`, `PATCH /orders/{id}/status`. *Pasar a preparación* dispara `order.ready-for-shipment` por RabbitMQ. |
+| **Seguimiento de Envíos** | Detalle del envío con su estado real y avance Retirado → En tránsito → Entregado (y Retrasado, Entrega fallida, Perdido). Si el backend rechaza un cambio, se muestra el error. | `GET /shipments`, `PATCH /shipments/{id}/status`. *Entregado* finaliza el pedido vía RabbitMQ. |
+| **Streaming en Vivo** (EP3) | Métricas y feed de eventos de Kafka (tópico, partición y offset) que se actualizan solos. | `GET /analytics/summary`, `GET /analytics/events` (ms-analytics consume los tópicos de Kafka). |
+| **Almacenes Inteligentes** | Productos y stock por bodega. | `/inventory/*` |
+| **Resumen Logístico** / **Optimizador IA** | Dashboard y asistente (Gemini). | `/dashboard` |
+
+El diagrama de la arquitectura desplegada está en el repo Backend:
+[`docs/arquitectura-smartlogix-ep6.drawio`](https://github.com/SmartLogix-Cloud/Backend/blob/main/docs/arquitectura-smartlogix-ep6.drawio).
 
 ---
 
@@ -119,6 +132,7 @@ src/
     geminiClient.ts     # Cliente del AI Hub (Gemini)
   components/
     Sidebar.tsx         # Navegación lateral + perfil del usuario
+    OrderModals.tsx     # Nuevo pedido y ficha del pedido (cambio de estado)
     GlitchTipDemo.tsx   # Disparadores de errores para validar observabilidad
   pages/
     Login.tsx           # Pantalla de inicio de sesión (MSAL)
@@ -126,6 +140,7 @@ src/
     WarehouseGrid.tsx   # Inventario (productos y stock)
     ShipmentTable.tsx   # Envíos
     OrdersView.tsx      # Pedidos
+    StreamingView.tsx   # Streaming en Vivo (métricas y eventos de Kafka)
     AIHub.tsx           # Optimizador de ruta + chatbot (Gemini)
   data/mockData.ts      # Datos de apoyo (logs iniciales)
   types.ts              # Tipos de dominio y DTOs del BFF
