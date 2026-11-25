@@ -52,6 +52,7 @@ export interface ShipmentTimelineStep {
 
 export interface Shipment {
   id: string;
+  backendStatus?: string; // estado crudo de ms-shipping (LISTO_PARA_RETIRO, RETIRADO, ...)
   trackingNumber: string;
   origin: string;
   destination: string;
@@ -113,6 +114,25 @@ export interface Order {
   dateRaw: string;  // fecha ISO corta, ej. "2026-10-23" (para filtrar)
   amount: number;
   status: OrderStatus;
+  orderId: number;         // id numérico de ms-order (para PATCH /orders/{id}/status)
+  backendStatus?: string;  // estado crudo del backend (PENDIENTE_PREPARACION, APROBADO, ...)
+}
+
+/** Producto del catálogo de ms-inventory (GET /inventory/products), con precio. */
+export interface CatalogProduct {
+  productId: number;
+  sku: string;
+  name: string;
+  price: number;
+  active?: boolean;
+}
+
+/** Cuerpo de POST /orders (CreateOrderRequest de ms-order). */
+export interface CreateOrderPayload {
+  type: 'ESTANDAR' | 'EXPRESS';
+  customerId: string;
+  marketplaceId?: string;
+  items: { productId: number; sku: string; quantity: number; unitPrice: number }[];
 }
 
 // ============================================================
@@ -218,4 +238,31 @@ export interface ChatMessage {
   sender: ChatSender;
   text: string;
   time: string;
+}
+
+// --- Streaming / analitica en tiempo real (ms-analytics, alimentado por Kafka) ---
+export interface AnalyticsSummary {
+  totalOrders: number;
+  ordersByStatus: Record<string, number>;
+  ordersByType: Record<string, number>;
+  activeRevenue: number;
+  totalShipments: number;
+  shipmentsByStatus: Record<string, number>;
+  activeIncidents: number;
+  deliveryRate: number;
+  eventsProcessed: number;
+  duplicatesIgnored: number;
+  lastEventAt: string | null;
+  generatedAt: string;
+}
+
+export interface StreamEvent {
+  topic: string;
+  partition: number;
+  offset: number;
+  eventType: string;
+  entityId: number;
+  status: string;
+  detail: string;
+  occurredAt: string;
 }

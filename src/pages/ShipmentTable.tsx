@@ -18,9 +18,31 @@ import {
   CreateShipmentPayload,
   UpdateShipmentStatusPayload,
 } from '../types';
-import { api } from '../client/apiClient';
+import { api, getErrorMessage } from '../client/apiClient';
 
 type SortKey = 'estimatedDelivery' | 'weight' | 'trackingNumber';
+
+// Máquina de estados de ms-shipping (ShipmentServiceImpl.TRANSITIONS).
+const SHIPMENT_STATE_LABEL: Record<string, string> = {
+  LISTO_PARA_RETIRO: 'Listo para retiro',
+  RETIRADO: 'Retirado',
+  EN_TRANSITO: 'En tránsito',
+  ENTREGADO: 'Entregado',
+  RETRASADO: 'Retrasado',
+  ENTREGA_FALLIDA: 'Entrega fallida',
+  PERDIDO: 'Perdido',
+};
+
+const SHIPMENT_NEXT: Record<string, string[]> = {
+  LISTO_PARA_RETIRO: ['RETIRADO', 'PERDIDO'],
+  RETIRADO: ['EN_TRANSITO', 'PERDIDO'],
+  EN_TRANSITO: ['ENTREGADO', 'RETRASADO', 'ENTREGA_FALLIDA', 'PERDIDO'],
+  RETRASADO: ['EN_TRANSITO', 'ENTREGADO', 'ENTREGA_FALLIDA', 'PERDIDO'],
+  ENTREGA_FALLIDA: ['EN_TRANSITO', 'PERDIDO'],
+};
+
+// Avance "feliz" que se destaca en la UI.
+const HAPPY_PATH = new Set(['RETIRADO', 'EN_TRANSITO', 'ENTREGADO']);
 
 interface ShipmentTableProps {
   // Optional: component will fetch from BFF if no shipments are provided
@@ -46,6 +68,9 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
   const [itemsCount, setItemsCount] = useState(5);
   const [errorMsg, setErrorMsg] = useState('');
   const [loading, setLoading] = useState(false);
+  const [statusError, setStatusError] = useState('');
+  const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
+  useEffect(() => setStatusError(''), [selectedShipment?.id]);
 
   // Local shipments state when fetched from backend
   const [remoteShipments, setRemoteShipments] = useState<Shipment[] | null>(null);
@@ -79,18 +104,22 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
   function mapDtoToShipment(d: ShipmentDto): Shipment {
     const mapEstado = (e: string): ShipmentStatus => {
       if (!e) return 'Pendiente';
+      // Estados reales de ms-shipping (ShipmentState).
       switch (e) {
         case 'ENTREGADO': return 'Entregado';
-        case 'EN_RUTA': return 'En Tránsito';
-        case 'ASIGNADO': return 'Pendiente';
-        case 'CREADO': return 'Pendiente';
-        case 'INCIDENCIA': return 'Retrasado';
+        case 'RETIRADO':
+        case 'EN_TRANSITO': return 'En Tránsito';
+        case 'RETRASADO':
+        case 'ENTREGA_FALLIDA':
+        case 'PERDIDO': return 'Retrasado';
+        case 'LISTO_PARA_RETIRO':
         default: return 'Pendiente';
       }
     };
 
     return {
       id: String(d.shipmentId ?? d.id ?? Math.random().toString(36).substring(7)),
+      backendStatus: d.status,
       trackingNumber: d.trackingNumber ?? `ENV-${Math.floor(Math.random()*1e6)}`,
       origin: d.district ? `${d.district}${d.region ? ', ' + d.region : ''}` : 'Planta Central',
       destination: d.destinationAddress ?? d.destination ?? '',
@@ -173,54 +202,29 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
     setItemsCount(5);
   };
 
-  const handleUpdateStatusLocal = (status: ShipmentStatus) => {
+  // Cambia el estado real del envío en ms-shipping (PATCH /shipments/{id}/status).
+  // Cada cambio publica SHIPMENT_STATUS_CHANGED en Kafka; ENTREGADO además avisa
+  // a ms-order por RabbitMQ (shipment.delivered) y el pedido pasa a FINALIZADO.
+  const handleUpdateStatus = async (nextState: string) => {
     if (!selectedShipment) return;
-    onUpdateShipmentStatus?.(selectedShipment.id, status);
-
-    // Map to backend enum and call BFF
-    const mapToEnum = (s: string) => {
-      switch (s) {
-        case 'Entregado': return 'ENTREGADO';
-        case 'En Tránsito': return 'EN_RUTA';
-        case 'Retrasado': return 'INCIDENCIA';
-        case 'Pendiente':
-        default:
-          return 'CREADO';
-      }
-    };
-
-    (async () => {
-      try {
-        const body: UpdateShipmentStatusPayload = {
-          status: mapToEnum(status),
-          location: status === 'Entregado' ? selectedShipment.destination : 'Centro de Distribución Intermedio',
-          comment: `Actualizado manualmente a ${status}`,
-        };
-
-        const updated = await api.updateShipmentStatus(selectedShipment.id, body);
-        const mapped = mapDtoToShipment(updated);
-        setRemoteShipments(prev => prev ? prev.map(p => p.id === mapped.id ? mapped : p) : [mapped]);
-        setSelectedShipment(mapped);
-      } catch (err) {
-        applyLocalStatusUpdate(status);
-      }
-    })();
-  };
-
-  const applyLocalStatusUpdate = (status: ShipmentStatus) => {
-    setSelectedShipment(prev => {
-      if (!prev) return null;
-      const newTimelineNode = {
-        status: `Estatus: ${status}`,
-        location: status === 'Entregado' ? prev.destination : 'Centro de Distribución Intermedio',
-        timestamp: new Date().toISOString().substring(0, 16).replace('T', ' '),
-        description: `Se actualizó el estado a ${status} por control operativo.`
+    setStatusError('');
+    setUpdatingStatus(nextState);
+    try {
+      const body: UpdateShipmentStatusPayload = {
+        status: nextState,
+        location: nextState === 'ENTREGADO' ? selectedShipment.destination : 'Centro de Distribución Intermedio',
+        comment: `Actualizado a ${SHIPMENT_STATE_LABEL[nextState] ?? nextState} desde el panel web`,
       };
-
-      const updated = { ...prev, status, timeline: [newTimelineNode, ...prev.timeline] };
-      setRemoteShipments(prevList => prevList ? prevList.map(p => p.id === updated.id ? updated : p) : [updated]);
-      return updated;
-    });
+      const updated = await api.updateShipmentStatus(selectedShipment.id, body);
+      const mapped = mapDtoToShipment(updated);
+      setRemoteShipments(prev => prev ? prev.map(p => p.id === mapped.id ? mapped : p) : [mapped]);
+      setSelectedShipment(mapped);
+      onUpdateShipmentStatus?.(mapped.id, mapped.status);
+    } catch (err) {
+      setStatusError(getErrorMessage(err));
+    } finally {
+      setUpdatingStatus(null);
+    }
   };
 
   
@@ -612,21 +616,32 @@ export default function ShipmentTable({ shipments, onAddShipment, onUpdateShipme
                 {/* Manual Status Controller */}
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold tracking-widest text-[#7c839b] uppercase block">Actualizar Estado de Entrega</label>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {['En Tránsito', 'Entregado', 'Pendiente', 'Retrasado'].map((statusOption) => (
-                      <button
-                        key={statusOption}
-                        onClick={() => handleUpdateStatusLocal(statusOption as ShipmentStatus)}
-                        className={`px-2 py-1.5 rounded transition-all text-[10px] font-bold border cursor-pointer ${
-                          selectedShipment.status === statusOption 
-                            ? 'bg-slate-900 border-slate-900 text-white shadow-xs' 
-                            : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                        }`}
-                      >
-                        {statusOption}
-                      </button>
-                    ))}
-                  </div>
+                  <p className="text-[11px] text-slate-600">
+                    Estado actual: <strong>{SHIPMENT_STATE_LABEL[selectedShipment.backendStatus ?? ''] ?? selectedShipment.backendStatus ?? selectedShipment.status}</strong>
+                  </p>
+                  {(SHIPMENT_NEXT[selectedShipment.backendStatus ?? ''] ?? []).length > 0 ? (
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {(SHIPMENT_NEXT[selectedShipment.backendStatus ?? ''] ?? []).map((next) => (
+                        <button
+                          key={next}
+                          disabled={updatingStatus !== null}
+                          onClick={() => handleUpdateStatus(next)}
+                          className={`px-2 py-1.5 rounded transition-all text-[10px] font-bold border cursor-pointer disabled:opacity-50 ${
+                            HAPPY_PATH.has(next)
+                              ? 'bg-[#006a61] border-[#006a61] text-white hover:bg-[#00544d]'
+                              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          {updatingStatus === next ? '...' : `→ ${SHIPMENT_STATE_LABEL[next]}`}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-slate-500">Estado final: no admite más cambios.</p>
+                  )}
+                  {statusError && (
+                    <p className="text-[11px] text-red-600 bg-red-50 rounded px-2 py-1">{statusError}</p>
+                  )}
                 </div>
 
                 {/* Logs History timeline */}

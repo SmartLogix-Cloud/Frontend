@@ -4,6 +4,10 @@ import {
   CreateShipmentPayload,
   UpdateShipmentStatusPayload,
   OrderDto,
+  CatalogProduct,
+  CreateOrderPayload,
+  AnalyticsSummary,
+  StreamEvent,
 } from '../types';
 import { msalInstance, apiTokenRequest } from '../auth/msalConfig';
 import { InteractionRequiredAuthError } from '@azure/msal-browser';
@@ -134,8 +138,42 @@ export const api = {
     return request<OrderDto[]>('/orders');
   },
 
+  /** Crea el pedido en ms-order: publica ORDER_CREATED en Kafka. */
+  async createOrder(payload: CreateOrderPayload): Promise<OrderDto> {
+    return request<OrderDto>('/orders', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  /**
+   * Cambia el estado del pedido (máquina de estados de ms-order).
+   * EN_PREPARACION dispara order.ready-for-shipment por RabbitMQ; todo cambio
+   * publica ORDER_STATUS_CHANGED en Kafka.
+   */
+  async updateOrderStatus(orderId: number, status: string, reason?: string): Promise<OrderDto> {
+    return request<OrderDto>(`/orders/${orderId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, reason }),
+    });
+  },
+
+  /** Catálogo de productos con precio (ms-inventory /products). */
+  async getCatalog(): Promise<CatalogProduct[]> {
+    return request<CatalogProduct[]>('/inventory/products');
+  },
+
   // --- Dashboard ---
   async getDashboard(): Promise<Record<string, unknown>> {
     return request<Record<string, unknown>>('/dashboard');
+  },
+
+  // --- Streaming / analitica en tiempo real (Kafka -> ms-analytics) ---
+  async getAnalyticsSummary(): Promise<AnalyticsSummary> {
+    return request<AnalyticsSummary>('/analytics/summary');
+  },
+
+  async getAnalyticsEvents(limit = 20): Promise<StreamEvent[]> {
+    return request<StreamEvent[]>(`/analytics/events?limit=${limit}`);
   },
 };
